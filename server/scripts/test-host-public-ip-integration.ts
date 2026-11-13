@@ -103,6 +103,46 @@ try {
   assert.equal(initial.onboardingNode!.activePublicIp, candidate, 'DB effective index follows verified host IP')
   assert.equal(initial.onboardingNode!.publicIp, host.onboardingNode!.publicIp, 'the original onboarding address remains historical evidence')
 
+  const creatingOrder = randomUUID()
+  await prisma.poolOrder.create({ data: { id: creatingOrder, userId: buyer.id, requestHash: creatingOrder, totalCents: 100 } })
+  const creatingGuest = await prisma.instance.create({ data: { userId: buyer.id, hostId: host.id, incusId: `${prefix}-creating`, name: 'creating-pool-guest',
+    status: 'creating', image: 'images:alpine/3.24/cloud', cpu: 200, memory: 768, disk: 30720, dedicatedIpv4: true,
+    dedicatedNetworkReady: false, purchaseBatchId: creatingOrder } })
+  const beforeCreatingWrites = writes.length, beforeCreatingVerification = verifications.length
+  const creatingScan = await syncHostPublicIp(host.id, {}, deps)
+  assert.equal(creatingScan.blocked, false, 'ordinary IP patrol must not revoke an unchanged verified host address while pool delivery owns the guest')
+  assert.equal(creatingScan.error, null)
+  assert.equal(creatingScan.status, 'synced')
+  assert.equal(verifications.length, beforeCreatingVerification, 'an unfinished guest is not the SSH target for background address verification')
+  assert.equal(writes.length, beforeCreatingWrites, 'background patrol must not alter delivery forwarding')
+  await prisma.instance.update({ where: { id: creatingGuest.id }, data: { ipv4: '10.10.1.3' } })
+  assert.equal((await syncHostPublicIp(host.id, {}, deps)).blocked, false, 'the same protection holds after private address allocation and before final delivery')
+  const verifiedHost = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
+  await prisma.host.update({ where: { id: host.id }, data: { publicIpSyncBlocked: true, publicIpSync: {
+    ...(verifiedHost.publicIpSync as object), status: 'pending', error: 'IP_INSTANCE_NOT_READY'
+  } } })
+  assert.equal((await syncHostPublicIp(host.id, {}, deps)).blocked, false, 'v1.8.9 creation-only false fence automatically heals from the same verified address and current host evidence')
+  candidate = '1.1.1.1'
+  const changedWhileCreating = await syncHostPublicIp(host.id, {}, deps)
+  assert.equal(changedWhileCreating.error, 'IP_INSTANCE_BUSY', 'real address changes must not mint the creation-only self-healing error')
+  assert.equal(changedWhileCreating.blocked, true, 'a real public address change during creation is still fenced')
+  assert.equal(changedWhileCreating.confirmedIp, verifiedHost.natPublicIp)
+  candidate = verifiedHost.natPublicIp!
+  assert.equal((await syncHostPublicIp(host.id, {}, deps)).blocked, true, 'a pending address-change failure cannot be forgiven as this creation-only fence')
+  await prisma.host.update({ where: { id: host.id }, data: { publicIpSyncBlocked: false, publicIpSync: verifiedHost.publicIpSync! } })
+  handshake = 0
+  assert.equal((await syncHostPublicIp(host.id, {}, deps)).error, 'IP_MANAGEMENT_OFFLINE', 'management liveness is checked even for an unfinished paid creation')
+  assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).publicIpSyncBlocked, true)
+  handshake = Math.floor(Date.now() / 1000)
+  await prisma.host.update({ where: { id: host.id }, data: { publicIpSyncBlocked: false, publicIpSync: verifiedHost.publicIpSync! } })
+  assert.equal((await syncHostPublicIp(host.id, { force: true }, deps)).blocked, false, 'a forced health observation cannot race the new guest when the existing address is unchanged')
+  const changedSettings = await syncHostPublicIp(host.id, { settings: { mode: 'auto', sshPort: 2222 } }, deps)
+  assert.equal(changedSettings.blocked, true, 'administrator SSH verification settings changed during delivery still require new verification')
+  assert.equal((await syncHostPublicIp(host.id, {}, deps)).blocked, true, 'the next background pass cannot forgive an unverified SSH settings change')
+  assert.equal((await syncHostPublicIp(host.id, {}, deps)).blocked, true, 'repeated background passes retain the original real failure')
+  await prisma.host.update({ where: { id: host.id }, data: { publicIpSyncBlocked: false, publicIpSync: verifiedHost.publicIpSync! } })
+  await prisma.instance.delete({ where: { id: creatingGuest.id } })
+
   const beforeMaintenanceIp=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
   const beforeMaintenanceCalls={connections,writes:writes.length,verifications:verifications.length}
   await prisma.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'waiting-boot'}}}})

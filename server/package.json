@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.8.9",
+  "version": "1.8.10",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",
@@ -24,6 +24,7 @@
     "test:platform-recovery-final-check": "node --import tsx scripts/test-platform-recovery-final-check.ts",
     "test:platform-recovery-start": "node --import tsx scripts/test-platform-recovery-start.ts",
     "test:checkout-payments": "node --import tsx scripts/test-checkout-payments.ts",
+    "test:admin-checkout-refunds-browser": "node ../scripts/test-admin-checkout-refunds.mjs",
     "test:platform-backup-history-integration": "node --import tsx scripts/test-platform-backup-history-integration.ts",
     "test:homepage-map-labels": "node --import tsx scripts/test-homepage-map-labels.ts",
     "test:prisma-transaction-start-guards": "node --import tsx scripts/test-prisma-transaction-start-guards.ts",

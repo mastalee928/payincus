@@ -4,7 +4,7 @@ set -Eeuo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted && $EUID == 0 && ! -e /opt/incudal ]] || exit 1
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 candidate=$(readlink -f -- "${1:?new release archive required}")
-old=$(readlink -f -- "${2:?official v1.8.8 archive required}")
+old=$(readlink -f -- "${2:?official v1.8.9 archive required}")
 scenario=${3:-clean}
 [[ $scenario == clean || $scenario == migrated-atomic || $scenario == rollback ]] || exit 1
 export UPGRADE_DRILL_SCENARIO="$scenario"
@@ -58,10 +58,10 @@ systemctl is-active --quiet incudal-backend
 frontend_root=/opt/incudal
 stage=prior-migration-setup
 if [[ $scenario == migrated-atomic || $scenario == rollback ]]; then
-  install -d -m 755 /opt/incudal/releases/v1.8.8-baseline "$work/candidate"
-  tar --no-same-owner -xzf "$old" -C /opt/incudal/releases/v1.8.8-baseline
-  cp -a /opt/incudal/server/certs /opt/incudal/releases/v1.8.8-baseline/server/
-  ln -s /opt/incudal/releases/v1.8.8-baseline /opt/incudal/current
+  install -d -m 755 /opt/incudal/releases/v1.8.9-baseline "$work/candidate"
+  tar --no-same-owner -xzf "$old" -C /opt/incudal/releases/v1.8.9-baseline
+  cp -a /opt/incudal/server/certs /opt/incudal/releases/v1.8.9-baseline/server/
+  ln -s /opt/incudal/releases/v1.8.9-baseline /opt/incudal/current
   frontend_root=/opt/incudal/current
   cat > /etc/systemd/system/incudal-backend.service.d/upgrade-drill.conf <<'EOF'
 [Service]

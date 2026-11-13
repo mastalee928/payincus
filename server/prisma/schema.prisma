@@ -3943,7 +3943,8 @@ model PoolOrder {
   @@map("pool_orders")
 }
 
-// Purchase payments never credit the wallet. Orders outlive browser sessions.
+// Successful purchases never credit the wallet; failed delivery can refund
+// its verified original receipt to the payer's balance. Orders outlive sessions.
 model CheckoutOrder {
   id String @id
   userId Int @map("user_id")

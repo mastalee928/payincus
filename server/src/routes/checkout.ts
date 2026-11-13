@@ -91,6 +91,7 @@ export default async function checkoutRoutes(app: FastifyInstance) {
       properties: { receipt: { type: 'string', minLength: 6, maxLength: 500 } } } }
   }, async request => {
     if (request.body.receipt.trim().length < 6) throw new CheckoutError('请填写有效退款回执', 400)
+    if (request.body.receipt.trim().startsWith('balance-log:')) throw new CheckoutError('余额入账回执只能由系统自动生成', 400)
     await prisma.$transaction(async tx => {
       const refund = await tx.checkoutRefund.findUniqueOrThrow({ where: { id: request.params.id }, include: { order: true } })
       await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, refund.order.userId)

@@ -294,6 +294,11 @@ bindAuthSession(http, () => {
 
 // API 模块
 const api = {
+  checkout: {
+    refunds: (): Promise<{ refunds: Array<{ id: string; orderId: string; amountCents: number; reason: string; createdAt: string; order: { userId: number }; payment: { providerName: string; method: string }; receipt: { tradeNo: string; amountCents: number; currency: string } }> }> => http.get('/checkout-admin/refunds'),
+    completeRefund: (id: string, receipt: string): Promise<{ success: true }> =>
+      http.post(`/checkout-admin/refunds/${encodeURIComponent(id)}/complete`, { receipt })
+  },
   aliyunOss: {
     recoveryReadiness: (): Promise<import('@/types/aliyun-oss').RecoveryReadiness> => http.get('/admin/aliyun-oss/recovery-review/readiness'),
     recoveryEvidence: (data: unknown) => http.post('/admin/aliyun-oss/recovery-review/evidence', data),

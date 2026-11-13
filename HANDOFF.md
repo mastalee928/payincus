@@ -1,5 +1,25 @@
 # 版本与验证记录
 
+- 最后来源d5e7c854完整CI43345508215已最终27/27success，池原生12/12、Alpine43345508238success、十必需预览43345595678success、双包独立核通过。全部本轮源码与补充已修并通过，开始合入／正式v1.8.10发行。正式资产／生产OTA／指定账户实购仍待下一步骤，不冒称上线已完成。
+
+- 最后来源d5e7c854ae9c08ba581de9b8ec679e02667ab05b已推PR13，CI43345508215六系统×双架构机器池12/12success，整体分片尚未终态；Alpine43345508238success，预览43345595678运行。Owner已修正vm.oci.ee；目标主控只读预检仍v1.8.9／唯一健康backend／DB检查开启；所有代码最终通过后允许正式发版与主控OTA、指定账户实购。不得把旧2f0ff43f绿当最后来源已完成。
+
+- 补充自动退余额专项与五轮完成，本地PG/浏览器/types/双build/边界/lint通过；全量218/219，Agent安装器60s外层超时后同源码单跑10场景exit0，失败并非产品断言（保留日志）。最后本金/付款匹配已进最终server/dist；提交新候选必须完整CI／预览验证，通过后正式发行并依owner授权主控OTA及实购。给定测试域名解析仍待用户回答。
+
+- 排队第三方失败自动退余额已实施，真实余额／原回执／bill同事务，指定文案按实际ledger显示，订单退款区与恢复账务精修，五轮及专项证据见[补充记录](docs/failed-checkout-wallet-refund-2026-11-13.md)。易支付／USDT／费分摊／回滚重试／恢复篡改等PG与browser通过，最终全量仍运行；原批27/27与十预览不能代替最后源码。Owner已授权全修后主控OTA＋poolbuyer实购；给定vm-test.masta.ee不可解析，已核当前配置vm.oci.ee，地址待确认，凭据仓库外private。无正式tag／Release／OTA。
+
+- 原批2f0ff43f CI43337700170已最终27/27success，预览43337716631十必需job全部success、Release预期skipped，Alpine43337700105success。原批闭环后开始排队「第三方开通失败自动退余额＋新文案」；当前原资金去向未改，正式v1.8.10未发布，须最终源码全部通过再发行。
+
+- 原批无tag预览43337716631已success：双构建／双首装／六原v1.8.9worker升级及故障回滚再升级10/10success，Release预期skipped。两实际包修复模块、242迁移、原pin签名hash/size/mode/架构、管理员API与用户权限边界独立核通过。CI43337700170尚待六分片浏览器尾段终态，无已知失败；未正式发行，新退款入余额要求仍待本批闭环后实施。
+
+- 原批已保存到PR13／2f0ff43f940bda0244dff885b4ace5d90ff73e71。CI43337700170真实机器池六系统×双架构12/12success、admin真实API／production bundlestep成功；整轮仍运行。Alpine43337700105已success；无tag预览43337716631 ARM64构建成功，AMD64／双首装／六旧worker升级未终态。Owner新门槛要求所有补充修完后才正式发布；后续自动退余额已授权而暂排队。详见[候选台账](docs/release-v1.8.10-validation.md)。不能据此发正式tag或称生产修复。
+
+- 本批新增管理退款模块缺失已修，真实admin alias／HTTP／生产bundle浏览器自然exit0；原第三方退款负债及回执状态回归另验，尚未改变退款去向。Owner新增第三方失败自动退余额（真实入账＋新文案）已授权但要求先完成当前批，列后续；永久执行顺序见OWNER_REQUIREMENTS。候选1.8.10未发行／生产未写。
+
+## 2026-11-13 v1.8.9后仍失败：host38／test-1（生产只读，候选未发布）
+
+- 截图订单test-1／实例33，主控真实v1.8.9／Agentv1.0.8；后台公网巡查23:26:25Z报IP_INSTANCE_NOT_READY并blocked，23:26:49Z最终交付拒绝。11元已全退、原容器／卷／forward清理回池计数0；本次非aa-exec。详细[根因／五轮记录](docs/pool-ip-provisioning-race-2026-11-13.md)。已补当前原地址正常creating与历史误报受控恢复，不豁免真实IP／身份／设置／失联。原生fixture改真正pool＋巡查竞争，此前普通镜像实跑未覆盖该链路；候选v1.8.10，Agent保持v1.0.8。未部署／发行，CI待验。
+
 ## 2026-11-13 v1.8.9／Agentv1.0.8正式发行
 
 - PR12合入main，source73337d2c8f25969e67b1584b6cf570997264d152，与全绿候选d3aa8ca2源码树一致；面板v1.8.9已公开且latest，正式43302419882双构建／双首装／六原v1.8.8 worker升级与故障回滚再升级／Release全部11/11success。候选CI43297365382全部27/27、原生六系统×双架构12/12、Agent及维护全通过；main43302361534最终27/27全部success。

@@ -264,7 +264,7 @@ export interface HostSshConnection {
 export interface PoolCheckoutResult {
   batchId: string
   total: number
-  instances: Array<{ id: number; name: string; incusId: string; host: string | null; status: string; refunded: boolean; refundPending: boolean; publicIpUpdating?: boolean; sshPort: number | null; rootPassword: string | null; publicIpv6Addresses?: string[]; publicIpv6Status?: string }>
+  instances: Array<{ id: number; name: string; incusId: string; host: string | null; status: string; refunded: boolean; refundPending: boolean; refundedToBalance?: boolean; publicIpUpdating?: boolean; sshPort: number | null; rootPassword: string | null; publicIpv6Addresses?: string[]; publicIpv6Status?: string }>
 }
 
 export interface HostPublicIpSettings {

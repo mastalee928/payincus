@@ -162,8 +162,19 @@ async function reconcile(hostId: number, settings: PublicIpSettings | undefined,
       if (await tx.instanceTask.count({ where: taskScope }) ||
           (instance && (await tx.restoreTask.count({ where: { instanceId: instance.id, status: { in: [...pending] } } }) ||
           await tx.backupUploadTask.count({ where: { instanceId: instance.id, status: { in: [...pending] } } })))) throw new PublicIpSyncError('IP_INSTANCE_BUSY')
-      if (instance && (!instance.dedicatedIpv4 || !instance.dedicatedNetworkReady || instance.provisioningCleanupPending || instance.deletionBillingPending)) throw new PublicIpSyncError('IP_INSTANCE_NOT_READY')
-      if (changed || blocked || force || state.status !== 'synced') {
+      const deliveryOwnsGuest = instance?.status === 'creating' && instance.dedicatedIpv4 && Boolean(instance.purchaseBatchId) &&
+        !instance.provisioningCleanupPending && !instance.deletionBillingPending
+      // The original host address is already verified. A paid creation owns
+      // its new guest and forward until final delivery. Probing that unfinished
+      // guest would manufacture an IP fence that then rejects the same delivery.
+      // Still detect real address changes, old failures and offline management.
+      const oldCreationFence = previousState.error === 'IP_INSTANCE_NOT_READY' &&
+        Number.isFinite(Date.parse(previousState.verifiedAt || '')) && previousState.candidateIp === candidate && previousState.candidateBindIp === bind
+      const sameSettings = JSON.stringify(state.settings) === JSON.stringify(previousState.settings)
+      const retainVerifiedAddress = deliveryOwnsGuest && sameSettings && !changed && state.bindAddresses.includes(host.natBindIp!) &&
+        ((!blocked && previousState.status === 'synced' && previousState.error === null) || oldCreationFence)
+      if (!retainVerifiedAddress && instance && (!instance.dedicatedIpv4 || !instance.dedicatedNetworkReady || instance.provisioningCleanupPending || instance.deletionBillingPending)) throw new PublicIpSyncError('IP_INSTANCE_NOT_READY')
+      if (!retainVerifiedAddress && (changed || blocked || force || state.status !== 'synced')) {
         const remoteInstances = await remote.request<RemoteInstance[]>('GET', '/1.0/instances?recursion=1&all-projects=true')
         if (remoteInstances.some(row => !instance || row.name !== instance.incusId || (row.project && row.project !== 'default')) ||
             (instance && remoteInstances.length !== 1)) throw new PublicIpSyncError('IP_REMOTE_INSTANCE_CONFLICT')
@@ -195,6 +206,14 @@ async function reconcile(hostId: number, settings: PublicIpSettings | undefined,
     } catch (error) {
       blocked = true
       state.error = signal.aborted ? 'IP_SYNC_DEADLINE' : publicIpFailureCode(error)
+      if (state.error === 'IP_INSTANCE_NOT_READY' && (changed || JSON.stringify(state.settings) !== JSON.stringify(previousState.settings))) {
+        state.error = 'IP_INSTANCE_BUSY'
+      } else if (state.error === 'IP_INSTANCE_NOT_READY' && previousState.error && previousState.error !== 'IP_INSTANCE_NOT_READY') {
+        // An unfinished guest cannot verify away an earlier real IP, identity
+        // or settings failure. Retain that cause rather than converting it
+        // into the narrowly recoverable old creation-only false fence.
+        state.error = previousState.error
+      }
       state.retryAttempts = !settings && previousState.error === state.error && previousState.candidateIp === state.candidateIp
         ? Math.min(previousState.retryAttempts + 1, 1000000) : 1
       state.status = publicIpRetryPolicy(state.error, state.retryAttempts).status

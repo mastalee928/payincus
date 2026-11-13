@@ -107,13 +107,23 @@ export async function getCheckout(userId: number, id: string) {
   const order = await prisma.checkoutOrder.findFirst({ where: { id, userId }, include: {
     payments: { orderBy: { createdAt: 'asc' }, select: { id: true, providerId: true, providerName: true, method: true,
       payableCents: true, feeCents: true, payUrl: true, status: true } },
-    refunds: { select: { id: true, amountCents: true, status: true, reason: true, instanceId: true } }
+    refunds: { select: { id: true, amountCents: true, status: true, reason: true, instanceId: true, resolution: true } }
   } })
   if (!order) throw new CheckoutError('订单不存在', 404)
   const result = await getPoolOrderResult(userId, id)
+  const walletLogs = await prisma.balanceLog.findMany({ where: { userId, orderId: id, type: 'refund',
+    id: { in: order.refunds.flatMap(refund => {
+      const value = /^balance-log:([1-9]\d*)$/.exec(refund.resolution || '')?.[1]
+      return value && Number.isSafeInteger(Number(value)) && Number(value) <= 2147483647 ? [Number(value)] : []
+    }) }
+  }, select: { id: true, instanceId: true, amount: true, balanceBefore: true, balanceAfter: true } })
   return { id, source: order.source, status: order.status, totalCents: order.totalCents, items: order.display,
     expiresAt: order.expiresAt.toISOString(), paidAt: order.paidAt?.toISOString() ?? null,
-    paymentId: order.paymentId, error: order.error, payments: order.payments, refunds: order.refunds, result }
+    paymentId: order.paymentId, error: order.error, payments: order.payments,
+    refunds: order.refunds.map(({ resolution, ...refund }) => ({ ...refund,
+      refundedToBalance: refund.status === 'refunded' && ['provisioning_failed','fulfillment_failed'].includes(refund.reason) &&
+        walletLogs.some(log => resolution === `balance-log:${log.id}` && log.instanceId === refund.instanceId &&
+          Math.round(Number(log.amount)*100) === refund.amountCents && log.balanceAfter.minus(log.balanceBefore).equals(log.amount)) })), result }
 }
 
 export async function cancelCheckout(userId: number, id: string, session?: WriteSession) {
@@ -205,6 +215,43 @@ export async function requestCheckoutRefund(tx: Prisma.TransactionClient, order:
   if (amountCents > 0) await tx.checkoutRefund.create({ data: { id, orderId: order.id, paymentId: payment.id,
     receiptId: receipt.id, instanceId, amountCents, principalCents, reason } })
   return amountCents > 0 ? id : false
+}
+
+/** Failed delivery returns the verified original payment to its payer's wallet.
+ * The refund receipt, wallet ledger and completion marker commit together;
+ * manual, duplicate and late-payment refunds retain their original route. */
+export async function creditFailedCheckoutRefundToBalance(tx: Prisma.TransactionClient, order: CheckoutOrder,
+  instanceId: number | null, principalCents: number, reason: 'provisioning_failed' | 'fulfillment_failed') {
+  const current = await lockCheckout(tx, order.id, order.userId)
+  if (!current.paidAt || current.paymentId !== order.paymentId || !Number.isSafeInteger(principalCents) ||
+      principalCents <= 0 || principalCents > current.totalCents) throw new CheckoutError('原付款状态或退款金额已变更，退款暂未完成')
+  const refundId = await requestCheckoutRefund(tx, current, instanceId, principalCents, reason)
+  if (!refundId) throw new CheckoutError('开通失败退款凭据未能创建')
+  const refund = await tx.checkoutRefund.findUniqueOrThrow({ where: { id: refundId }, include: { receipt: true } })
+  if (refund.orderId !== current.id || refund.instanceId !== instanceId || refund.reason !== reason ||
+      refund.paymentId !== current.paymentId || refund.principalCents !== principalCents ||
+      refund.receipt.paymentId !== current.paymentId || refund.receipt.currency !== 'CNY') throw new CheckoutError('开通失败退款来源不符')
+  if (refund.status === 'refunded') {
+    const id = /^balance-log:([1-9]\d*)$/.exec(refund.resolution || '')?.[1]
+    const ledger = id && Number(id) <= 2147483647 ? await tx.balanceLog.findFirst({ where: { id: Number(id), userId: current.userId,
+      orderId: current.id, instanceId, type: 'refund', amount: refund.amountCents / 100 } }) : null
+    if (refund.resolution?.startsWith('balance-log:') && (!ledger || !ledger.balanceAfter.minus(ledger.balanceBefore).equals(ledger.amount))) {
+      throw new CheckoutError('账户余额退款入账凭据不完整')
+    }
+    // An already completed original refund cannot be credited a second time.
+    return { refundId, balanceLogId: ledger?.id ?? null, amountCents: refund.amountCents, credited: false }
+  }
+  if (refund.status !== 'pending' || refund.amountCents <= 0 || refund.amountCents > refund.receipt.amountCents) {
+    throw new CheckoutError('开通失败退款金额或状态无效')
+  }
+  const amount = refund.amountCents / 100
+  const payer = await tx.user.update({ where: { id: current.userId }, data: { balance: { increment: amount } } })
+  const ledger = await tx.balanceLog.create({ data: { userId: current.userId, orderId: current.id, instanceId,
+    type: 'refund', amount, balanceBefore: Number(payer.balance) - amount, balanceAfter: payer.balance,
+    remark: '实例开通失败，第三方付款自动退至账户余额' } })
+  await tx.checkoutRefund.update({ where: { id: refundId }, data: { status: 'refunded',
+    resolution: `balance-log:${ledger.id}`, handledAt: new Date(), handledById: null } })
+  return { refundId, balanceLogId: ledger.id, amountCents: refund.amountCents, credited: true }
 }
 
 function snapshotOf(order: CheckoutOrder): Snapshot {
@@ -322,10 +369,17 @@ export async function processCheckoutQueue() {
             const user = await tx.user.update({ where: { id: current.userId }, data: { balance: { increment: amount } } })
             await tx.balanceLog.create({ data: { userId: current.userId, type: 'refund', amount, balanceBefore: Number(user.balance) - amount,
               balanceAfter: user.balance, orderId: current.id, remark: `订单未能开通，退回余额 ${current.id}` } })
-          } else await requestCheckoutRefund(tx, current, null, current.totalCents, 'fulfillment_failed')
+          } else await creditFailedCheckoutRefundToBalance(tx, current, null, current.totalCents, 'fulfillment_failed')
           await releaseCheckoutReservations(tx, current.id)
-          await tx.checkoutOrder.update({ where: { id: current.id }, data: { status: current.paymentId === 'balance' ? 'refunded' : 'refund_pending', error: '机器未能开通，订单已进入退款处理' } })
+          await tx.checkoutOrder.update({ where: { id: current.id }, data: { status: 'refunded', error: current.paymentId === 'balance'
+            ? '本台主机未能开通，费用已按原支付方式退回。' : '本台主机未能开通，款项已自动退至账户余额。' } })
         } else await tx.checkoutOrder.update({ where: { id: current.id }, data: { attempts, nextAttemptAt: new Date(Date.now() + Math.min(300000, 15000 * 2 ** attempts)), error: '正在重新尝试开通' } })
+      }).catch(async () => {
+        // A failed wallet/ledger transaction leaves the original payment and
+        // all money unchanged. Persist the retry and continue other orders.
+        await prisma.checkoutOrder.updateMany({ where: { id: order.id, status: 'paid' }, data: {
+          attempts, nextAttemptAt: new Date(Date.now() + 15000), error: '开通失败退款尚未完成，系统正在自动重试'
+        } }).catch(() => undefined)
       })
     }
   }

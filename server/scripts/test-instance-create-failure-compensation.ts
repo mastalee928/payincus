@@ -30,6 +30,12 @@ function section(source: string, startPattern: string, endPattern: string): stri
 
 const compensationSection = compensationSource
 assert.ok(compensationSection.includes("if (instance.status === 'deleted')"), 'late failure compensation must defer to claimed destroy settlement')
+const checkoutSource = readSource('../src/services/checkout-orders.ts')
+assert.ok(compensationSection.includes('await creditFailedCheckoutRefundToBalance(') &&
+  checkoutSource.includes('resolution: `balance-log:${ledger.id}`') &&
+  checkoutSource.includes("await tx.user.update({ where: { id: current.userId }, data: { balance: { increment: amount } } })") &&
+  checkoutSource.includes('await creditFailedCheckoutRefundToBalance(tx, current, null, current.totalCents'),
+  'failed third-party delivery refunds its verified original receipt to the payer wallet in the same transaction, including pre-materialization failure')
 
 const failureSection = section(
   instancesSource,

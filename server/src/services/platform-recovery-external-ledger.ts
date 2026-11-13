@@ -50,6 +50,16 @@ export async function assertRecoveryExternalLedger(tx:Prisma.TransactionClient,s
       continue
     }
     const linked=refunds.filter(row=>row.billingRecordId===bill.id)
+    const failedWallet=linked.length===1 && linked[0].reason==='provisioning_failed' &&
+      linked[0].resolution===`balance-log:${bill.balanceLogId}` ? linked[0] : null
+    if(failedWallet){
+      ensure(log && bill.userId===order.userId && log.userId===order.userId && log.orderId===order.id &&
+        log.type==='refund' && failedWallet.status==='refunded' && failedWallet.instanceId===bill.instanceId &&
+        bill.amount.lessThan(0) && failedWallet.principalCents===Math.abs(recoveryMoneyCents(bill.amount)) &&
+        recoveryMoneyCents(log.amount)===failedWallet.amountCents && log.balanceAfter.minus(log.balanceBefore).equals(log.amount),
+        'OSS_RECOVERY_WALLET_REFUND_LINK_REQUIRED',409)
+      continue
+    }
     const external=linked.reduce((sum,row)=>sum+row.principalCents,0)
     const wallet=log?recoveryMoneyCents(log.amount):0
     ensure((bill.amount.lessThan(0)||recoverySettledDeletion(guest!) && bill.amount.greaterThan(0)) &&
@@ -59,6 +69,14 @@ export async function assertRecoveryExternalLedger(tx:Prisma.TransactionClient,s
       'OSS_RECOVERY_WALLET_REFUND_LINK_REQUIRED',409)
   }
   for(const refund of refunds){
+    if (/^balance-log:/.test(refund.resolution || '')) {
+      const logId=/^balance-log:([1-9]\d*)$/.exec(refund.resolution || '')?.[1]
+      const log=logId && Number(logId)<=2147483647 ? await tx.balanceLog.findUnique({where:{id:Number(logId)}}):null
+      ensure(['provisioning_failed','fulfillment_failed'].includes(refund.reason) && refund.status==='refunded' &&
+        log && log.userId===order.userId && log.orderId===order.id && log.instanceId===refund.instanceId && log.type==='refund' &&
+        recoveryMoneyCents(log.amount)===refund.amountCents && log.balanceAfter.minus(log.balanceBefore).equals(log.amount) &&
+        refund.receipt.currency==='CNY' && log.createdAt<=refund.handledAt!,'OSS_RECOVERY_WALLET_REFUND_LINK_REQUIRED',409)
+    }
     ensure(refund.status==='refunded' && refund.resolution && refund.handledAt && refund.handledAt>=refund.createdAt && refund.handledAt<=observedAt &&
       refund.payment.orderId===order.id && refund.receipt.paymentId===refund.paymentId && refund.receipt.providerId===refund.payment.providerId &&
       refund.amountCents>0 && refund.principalCents>=0 && refund.amountCents>=refund.principalCents &&
@@ -74,7 +92,10 @@ export async function assertRecoveryExternalLedger(tx:Prisma.TransactionClient,s
     ensure(external<=recoveryMoneyCents(purchase[0].amount),'OSS_RECOVERY_REFUND_MISMATCH',409)
     const laterPaid=bills.filter(row=>row.instanceId===guest.id && ['renew','upgrade'].includes(row.type)).reduce((sum,row)=>sum+recoveryMoneyCents(row.amount),0)
     const walletReturned=bills.filter(row=>row.instanceId===guest.id && row.type==='refund').reduce((sum,row)=>{
-      const log=logs.find(value=>value.id===row.balanceLogId);return sum+(log?recoveryMoneyCents(log.amount):0)
+      const log=logs.find(value=>value.id===row.balanceLogId)
+      const failedWallet=refunds.some(refund=>refund.billingRecordId===row.id && refund.reason==='provisioning_failed' &&
+        refund.resolution===`balance-log:${row.balanceLogId}`)
+      return sum+(log && !failedWallet?recoveryMoneyCents(log.amount):0)
     },0)
     ensure(walletReturned<=laterPaid,'OSS_RECOVERY_REFUND_MISMATCH',409)
   }

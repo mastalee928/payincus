@@ -7,6 +7,6 @@ export interface CheckoutOrder {
   id: string; source: 'direct' | 'cart'; status: string; totalCents: number; expiresAt: string; paidAt: string | null
   paymentId: string | null; error: string | null; payments: CheckoutPayment[]
   items: Array<{ namePrefix: string; quantity: number; image: string; resourcePreset: string; memoryMiB: number; diskGiB: number; monthlyPrice: number; setupFee: number; cpu?: number; regionName?: string; countryCode?: string }>
-  refunds: Array<{ id: string; amountCents: number; status: string; reason: string; instanceId: number | null }>
+  refunds: Array<{ id: string; amountCents: number; status: string; reason: string; instanceId: number | null; refundedToBalance?: boolean }>
   result: PoolCheckoutResult | null
 }

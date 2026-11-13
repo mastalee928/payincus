@@ -301,7 +301,7 @@ function buildBillingOrder(record: {
 async function billingOrdersWithPayment(records: (Parameters<typeof buildBillingOrder>[0] & { instanceId: number })[]) {
   const lineages = await Promise.all([...new Set(records.map(row => row.instanceId))].map(async id => ({ id, ids: await getInstanceBillingLineageIds(id) })))
   const purchaseSources = await prisma.instanceBillingRecord.findMany({ where: { instanceId: { in: lineages.flatMap(row => row.ids) }, type: 'newPurchase', purchaseBatchId: { not: null } }, select: { instanceId: true, purchaseBatchId: true } })
-  const sourceBills = await prisma.instanceBillingRecord.findMany({ where: { id: { in: records.map(row => row.id) } }, select: { id: true, purchaseBatchId: true } })
+  const sourceBills = await prisma.instanceBillingRecord.findMany({ where: { id: { in: records.map(row => row.id) } }, select: { id: true, purchaseBatchId: true, balanceLogId: true } })
   const batches = sourceBills.flatMap(row => row.purchaseBatchId ? [row.purchaseBatchId] : [])
   const [orders, refunds, batchBills] = await Promise.all([
     prisma.checkoutOrder.findMany({ where: { id: { in: [...batches, ...purchaseSources.map(row => row.purchaseBatchId!)] } }, include: { payments: { include: { receipts: true } } } }),
@@ -321,7 +321,9 @@ async function billingOrdersWithPayment(records: (Parameters<typeof buildBilling
     const preceding = batchBills.filter(row => row.purchaseBatchId === order?.id && row.id < record.id).reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0)
     const feeCents = related.length ? related.reduce((sum, row) => sum + row.amountCents - row.principalCents, 0)
       : order?.totalCents ? Math.round((preceding + principal) * payment.feeCents / order.totalCents) - Math.round(preceding * payment.feeCents / order.totalCents) : 0
-    const paymentSources = related.map(row => ({ providerName: row.payment.providerName, method: row.payment.method,
+    const paymentSources = related.map(row => ({ providerName: row.payment.providerName,
+      method: row.status === 'refunded' && row.reason==='provisioning_failed' &&
+        row.resolution===`balance-log:${sourceBills.find(bill=>bill.id===row.billingRecordId)?.balanceLogId}` ? 'balance' : row.payment.method,
       amount: row.amountCents / 100, status: row.status === 'refunded' ? 'refunded' : 'refund_pending' }))
     const walletCents = principal - related.reduce((sum, row) => sum + row.principalCents, 0)
     if (related.length && walletCents > 0) paymentSources.push({ providerName: '', method: 'balance', amount: walletCents / 100, status: 'refunded' })
