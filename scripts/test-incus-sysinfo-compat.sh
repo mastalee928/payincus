@@ -12,7 +12,7 @@ old=$!
 incus admin waitready --timeout=60
 incus storage create default dir
 incus init images:alpine/3.24/tinycloud native-sysinfo -s default -c limits.memory=128MiB -c security.syscalls.intercept.sysinfo=true
-incus start native-sysinfo
+if ! incus start native-sysinfo; then incus info --show-log native-sysinfo; cat /tmp/incusd-original.log; exit 1; fi
 sleep 4
 incus exec native-sysinfo -- sh -c 'printf preserved >/root/owner-marker'
 incus query /1.0/instances/native-sysinfo > /tmp/identity-before.json
