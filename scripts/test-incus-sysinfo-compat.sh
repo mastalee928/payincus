@@ -3,8 +3,15 @@
 set -eu
 test "${INCUDAL_SYSINFO_COMPAT_TEST:-}" = disposable
 test ! -e /var/lib/incus/database
-mkdir -p /sys/fs/cgroup/incudalsysinfo.slice/tasks
-echo $$ > /sys/fs/cgroup/incudalsysinfo.slice/tasks/cgroup.procs
+delegated=/sys/fs/cgroup/incudalsysinfo.slice
+mkdir -p "$delegated/tasks"
+echo $$ > "$delegated/tasks/cgroup.procs"
+for path in /sys/fs/cgroup /sys/fs/cgroup/incudalsysinfo.slice /sys/fs/cgroup/incudalsysinfo.slice/tasks; do
+  echo "$path"
+  cat "$path/cgroup.controllers" "$path/cgroup.subtree_control" "$path/cgroup.procs"
+done
+mkdir -p "$delegated/lxc"
+echo '+cpuset +cpu +io +memory +pids' > "$delegated/lxc/cgroup.subtree_control"
 apk add --no-cache incus incus-client openrc apparmor-utils iproute2 python3
 mkdir -p /run/openrc
 touch /run/openrc/softlevel
@@ -13,7 +20,7 @@ rc-service dbus start
 old=$!
 incus admin waitready --timeout=60
 incus storage create default dir
-incus init images:alpine/3.24/tinycloud native-sysinfo -s default -c limits.memory=128MiB -c security.syscalls.intercept.sysinfo=true
+incus init images:alpine/3.24/tinycloud native-sysinfo -s default -c limits.memory=128MiB -c security.syscalls.intercept.sysinfo=true -c raw.lxc="lxc.cgroup.dir = /incudalsysinfo.slice/lxc"
 if ! incus start native-sysinfo; then incus info --show-log native-sysinfo; cat /tmp/incusd-original.log; exit 1; fi
 sleep 4
 incus exec native-sysinfo -- sh -c 'printf preserved >/root/owner-marker'
