@@ -1,5 +1,7 @@
 # 主控持久镜像库（候选，未部署）
 
+最后原生失败阶段纠正：fa0963f0及1d3ad2fd的Debian11重装初始化和即时公网SSH均通过，失败发生在后续CLI停启的早期boot观察，旧boot-finished和新boot_id不足以证明SSH已启动。1d3ad2fd日志确认ssh尚inactive、networkd刚启动且forward原配置正确。改为运行平台真实停机/启动/重启任务后再独立检查SSH、身份和磁盘，不延迟掩盖问题、不跳过验收。该修正原生结果及最终全量220仍待。
+
 Owner最新策略取代所有镜像内置发行包：默认镜像首次下载并校验后保存在主控`/var/lib/incudal-images`，程序升级/回滚不携带、不复制、不删除镜像库。缺失/损坏按原hash和来源自动补对应文件；上游新构建日期或程序版本不触发整库重下。后台逐项预取，售卖/重装按需读已校验本地镜像，经原受信mTLS导入宿主Incus并缓存复用。原用户镜像ID/别名、实例磁盘/账期/价格/归属保持。
 
 首次下载内容寻址为SHA256文件，固定alias/architecture/type收据独立持久。原生官方SimpleStreams使用metadata+root.tar.xz（容器）或disk（VM），核每文件及官方组合fingerprint；导入multipart对应Incus规范，严格保持原TLS/维护门禁。元数据可以由容器/VM复用；缓存命中不访问上游目录或下载。禁止链接/路径越界/未知架构；磁盘不足留待补齐，不自动清客户盘或已缓存版本。进程关闭取消本worker下载，原临时文件定向清理。

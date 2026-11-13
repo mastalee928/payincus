@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 1d3ad2fd诊断CI43454675508 Debian11 jobs131985559269/131985559506：重装及即时公网SSH实际已通过，原先误认失败在重装后；堆栈没有异步调用行，失败实际位于后续原生CLI stop/start。测试只读新boot_id/磁盘旧boot-finished便立刻连接，日志此刻networkd刚启动且ssh inactive，forward正确。改使用实际平台stop/start/restart任务（含公网SSH就绪）后独立复核Stopped、boot变化、原key/密码/文件，保留失败诊断。生产源码没有因此放宽或增加延时；仍待这条真实流程原生验收，本批未热更新，正式暂停。
+
 - fa0963f0双架构Debian11原生CI43451754003 jobs131975405762/131975405935均失败：首次交付成功、missing镜像失败正确终结、新重装完成bootstrap并第一次公网SSH验证后，第二次连接报unreachable，停启/重启尚未验收。补在失败清理前保留真实客机SSH/networkd/bootstrap journal、监听/地址/路由及宿主forward/nft/邻居日志，继续定位，不加等待掩盖。预览43451744878十必需job全部success、Release预期skipped；Agent43451754038与Alpine43451754061success，整体CI六分片尚未终态。主控仍preview-818cc09，本批禁止热更新或正式发布。
 
 - 495bf1e8持久库CI43449735959 AMD64 Debian11 job131968444588：首次开通与重装SSH已成功，随后bootstrap-complete即时断言失败，重装过早完成（云初始化末段回执尚未结束）。补首次初始化等待自有bootstrap-complete、Debian11重装同门槛，真实停启/重启仍待。主控仍preview-818cc09，此批未热更新；#40 test-arm-1授权已核，所有默认镜像独立持久库策略继续。

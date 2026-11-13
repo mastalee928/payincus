@@ -228,8 +228,8 @@ try {
           name: remoteAlias, remoteAlias, icon: image.startsWith('debian/') ? 'debian' : 'alpine', architecture: host.architecture, instanceType: 'container'
         } }))
       }
-      const requestRebuild = async (imageAlias: string) => {
-        const admitted = await createInstanceTask({ instanceId: instance.id, hostId: host.id, userId: user.id, taskType: 'rebuild', imageAlias,
+      const requestNativeOperation = async (taskType: 'rebuild' | 'stop' | 'start' | 'restart', imageAlias?: string) => {
+        const admitted = await createInstanceTask({ instanceId: instance.id, hostId: host.id, userId: user.id, taskType, imageAlias,
           sensitiveAuthorization: { actor: { id: user.id, sid: 'native-acceptance', iat: Math.floor(Date.now() / 1000) }, entry: 'host',
             expectedOwnerId: user.id, expectedIncusId: name, expectedHostIdentity: transferHostIdentity(await prisma.host.findUniqueOrThrow({ where: { id: host.id } })) } })
         const claimed = await prisma.instanceTask.update({ where: { id: admitted.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
@@ -237,23 +237,27 @@ try {
         return prisma.instanceTask.findUniqueOrThrow({ where: { id: claimed.id } })
       }
       try {
-        const failed = await requestRebuild(missingAlias)
+        const failed = await requestNativeOperation('rebuild', missingAlias)
         assert.equal(failed.status, 'FAILED', failed.error || '')
         assert.equal((failed.replacementState as any).targetPhase, 'rebuild_failed')
         await assert.rejects(assertRebuildBootReady(prisma, instance.id), /重新选择镜像重装/)
         assert.equal(JSON.parse(execFileSync('incus', ['query', `/1.0/instances/${name}/state`], { encoding: 'utf8' })).status, 'Stopped')
-        const retry = await requestRebuild(availableAlias)
+        const retry = await requestNativeOperation('rebuild', availableAlias)
         assert.equal(retry.status, 'COMPLETED', retry.error || '')
         const recovered = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
         assert.equal(recovered.status, 'running'); assert.equal(recovered.expiresAt?.getTime(), instance.expiresAt?.getTime())
         assert.equal(recovered.purchaseBatchId, instance.purchaseBatchId)
         await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
+        console.log('PASS native post-rebuild password SSH before stop/start')
         if (image === 'debian/11/cloud') {
           const beforeKeys = await instanceSshFingerprints(transport, name)
           const initial = await execWithOutput(transport, name, ['sh', '-c', 'set -e; . /etc/os-release; test "$VERSION_ID" = 11; test -f /var/lib/incudal/image-bootstrap-complete; test -f /var/lib/cloud/instance/boot-finished; printf original > /root/owner-image-marker; cat /proc/sys/kernel/random/boot_id'], {}, 10000)
           assert.equal((initial.metadata as any).return, 0)
-          execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })
-          execFileSync('incus', ['start', name], { timeout: 30000 })
+          const stopped = await requestNativeOperation('stop')
+          assert.equal(stopped.status, 'COMPLETED', stopped.error || '')
+          assert.equal(JSON.parse(execFileSync('incus', ['query', `/1.0/instances/${name}/state`], { encoding: 'utf8' })).status, 'Stopped')
+          const started = await requestNativeOperation('start')
+          assert.equal(started.status, 'COMPLETED', started.error || '')
           let newBoot = ''
           for (let step = 0; step < 40; step++) {
             try {
@@ -265,7 +269,9 @@ try {
           assert.ok(newBoot && newBoot !== initial.stdout)
           assert.deepEqual(await instanceSshFingerprints(transport, name), beforeKeys)
           await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
-          execFileSync('incus', ['restart', name, '--force'], { timeout: 30000 })
+          console.log('PASS native customer stop/start task and retained password SSH')
+          const restart = await requestNativeOperation('restart')
+          assert.equal(restart.status, 'COMPLETED', restart.error || '')
           let restarted = false
           for (let step = 0; step < 40; step++) {
             try {
