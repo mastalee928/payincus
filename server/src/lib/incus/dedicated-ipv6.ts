@@ -166,6 +166,11 @@ fi
 # cloud-init used to disable IPv6 for NAT guests; let that first boot finish first.
 if [ -d /var/lib/cloud/instance ] && [ ! -f /var/lib/cloud/instance/boot-finished ]; then exit 75; fi
 command -v ip >/dev/null
+# Tiny Cloud images can have neither curl nor Python. Repair only this missing
+# probe dependency, using the installed Alpine branch and its signed packages.
+if ! command -v curl >/dev/null && ! command -v python3 >/dev/null && [ -f /etc/alpine-release ]; then
+  timeout 15 apk add --no-cache curl || exit 76
+fi
 if [ ! -d /run/systemd/system ] && ! command -v rc-update >/dev/null; then exit 76; fi
 mkdir -p ${guestDirectory} /usr/local/sbin /etc/sysctl.d
 ${writeGuestFile(`${guestDirectory}/addresses`, addresses.join('\n') + (addresses.length ? '\n' : ''))}
@@ -233,7 +238,8 @@ export async function reconcileDedicatedIpv6(client: IncusClient, input: {
       const fallbackIp = dedicatedIpv6Address(gateway!, input.instanceId, `${publicIp}:other-protocols`)
       const old = sameInstance ? previous.mappings.find(mapping => mapping.publicIp === publicIp &&
         mapping.privateIp === privateIp && mapping.fallbackIp === fallbackIp) : undefined
-      return { publicIp, privateIp, fallbackIp, ready: old?.ready === true, checkedAt: old?.checkedAt ?? null, ...(old?.verification ? { verification: old.verification } : {}) }
+      const fresh = old?.checkedAt && Date.now() - Date.parse(old.checkedAt) < 15 * 60 * 1000
+      return { publicIp, privateIp, fallbackIp, ready: !input.force && Boolean(fresh) && old?.ready === true, checkedAt: old?.checkedAt ?? null, ...(old?.verification ? { verification: old.verification } : {}) }
     })
     // Delete only addresses no longer present on the host, including after a crash/retry.
     await removeObsoleteDedicatedIpv6Forwards(client, input.name, addresses)
@@ -283,7 +289,7 @@ export async function reconcileDedicatedIpv6(client: IncusClient, input: {
     state.error = input.signal?.aborted ? 'IPV6_SYNC_DEADLINE' : error instanceof PublicIpv6SyncError ? error.code : 'IPV6_DELIVERY_FAILED'
     state.status = ['IPV6_GUEST_INITIALIZING', 'IPV6_NETWORK_PENDING', 'IPV6_SYNC_DEADLINE'].includes(state.error) ? 'pending' : 'failed'
     // Keep only previously verified, still assigned addresses; a failed read cannot invent readiness.
-    state.mappings = state.mappings.length ? state.mappings : (sameInstance ? previous.mappings.filter(mapping => addresses.includes(mapping.publicIp)) : [])
+    state.mappings = state.mappings.length ? state.mappings : (sameInstance ? previous.mappings.filter(mapping => addresses.includes(mapping.publicIp)).map(mapping => ({ ...mapping, ready: input.force ? false : mapping.ready })) : [])
   }
   return state
 }

@@ -146,13 +146,14 @@ export async function prepareDedicatedIpv6Delivery(client: IncusClient, instance
     state.primary = state.addresses[0] ?? null
     if (state.addresses.length) requireIpv6Agent(host)
     delivery = await reconcileDedicatedIpv6(remote, { hostId, instanceId, name, addresses: state.addresses,
-      previous: instance.dedicatedIpv6, sshPort: publicIpState(host.publicIpSync).settings.sshPort, signal }, dedicatedIpv6Dependencies)
+      previous: instance.dedicatedIpv6, sshPort: publicIpState(host.publicIpSync).settings.sshPort, force: true, signal }, dedicatedIpv6Dependencies)
     state.status = ['none', 'ready'].includes(delivery.status) ? 'synced' : delivery.status as 'pending' | 'failed'
     state.error = delivery.error
   } catch (error) {
     state.status = 'failed'
     state.error = error instanceof PublicIpv6SyncError ? error.code : 'IPV6_MANAGEMENT_UNAVAILABLE'
     delivery = pendingInstanceState(instance.dedicatedIpv6, hostId, name, state.addresses, state.error)
+    delivery.mappings = delivery.mappings.map(mapping => ({ ...mapping, ready: false }))
   }
   state.checkedAt = new Date().toISOString()
   await prisma.host.update({ where: { id: hostId }, data: { publicIpv6Sync: json(state), natPublicIpv6: state.primary, natBindIpv6: state.primary } })

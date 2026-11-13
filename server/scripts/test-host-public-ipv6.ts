@@ -78,6 +78,13 @@ assert.equal(guestAddresses.length, 0, 'an IPv4-only machine needs no IPv6 guest
 input.addresses = [a, b]
 const initial = await reconcileDedicatedIpv6(client, input, deps)
 assert.equal(initial.status, 'ready')
+const forcedGuestFailure = await reconcileDedicatedIpv6(client, { ...input, previous: initial, force: true }, { ...deps,
+  guest: async () => { throw new PublicIpv6SyncError('IPV6_GUEST_PROBE_UNAVAILABLE') }
+})
+assert.deepEqual(customerIpv6View(forcedGuestFailure)?.addresses, [], 'reinstall cannot retain the previous guest verification after its new guest probe fails')
+const previousChecks = verified.length
+await reconcileDedicatedIpv6(client, { ...input, previous: { ...initial, mappings: initial.mappings.map(m => ({ ...m, checkedAt: new Date(Date.now()-16*60000).toISOString() })) } }, deps)
+assert.equal(verified.length-previousChecks, 2, 'background reconciliation periodically revalidates stale guest evidence')
 assert.deepEqual(customerIpv6View(initial)?.addresses, [a, b])
 assert.equal(customerIpv6View({ ...initial, status: 'pending', error: 'IPV6_INSTANCE_STOPPED' })?.status, 'ready', 'stopped instance keeps confirmed address allocation without a false configuring message')
 assert.equal(customerIpv6View({ ...initial, status: 'pending', error: 'IPV6_INSTANCE_STOPPED', mappings: initial.mappings.map(m => ({ ...m, ready: false })) })?.status, 'pending', 'stopping cannot turn unverified mappings into ready')
@@ -112,7 +119,7 @@ input.previous = initial; input.addresses.reverse()
 const repeated = await reconcileDedicatedIpv6(client, input, deps)
 assert.equal(writes, before, 'repeated reconciliation does not recreate or rewrite owned forwards')
 assert.deepEqual(repeated.mappings, initial.mappings)
-assert.equal(verified.length, 2, 'customer SSH changes do not invalidate unchanged, verified paths')
+assert.equal(verified.length, previousChecks + 2, 'fresh repeated reconciliation does not repeat public SSH probes')
 await removeObsoleteDedicatedForwards(client, input.name, '10.0.0.85', '10.10.0.2')
 assert.equal(forwards.filter(item => item.listen_address === a || item.listen_address === b).length, 2, 'IPv4 reconciliation preserves IPv6 forwards')
 
@@ -159,6 +166,8 @@ assert.ok(bootInstall.indexOf('systemctl start --no-block cloud-final.service') 
 assert.match(bootInstall, /cmp -s - \/etc\/systemd\/system\/payincus-ipv6.service/)
 assert.match(bootInstall, /readlink -f "\$old_link"/)
 assert.doesNotMatch(bootInstall, /cloud-init clean|cloud-init init|reboot|systemctl restart cloud/)
+assert.match(bootInstall, /timeout 15 apk add --no-cache curl/)
+assert.doesNotMatch(bootInstall, /--allow-untrusted|--no-check-certificate|apk.*upgrade/)
 
 // A missing host-side source mapping must not be advertised as working IPv6.
 input.previous = null; input.addresses = [a]; input.force = false

@@ -74,7 +74,7 @@ try {
     verify: async (...args: Parameters<typeof verifyPublicSshIdentity>) => { addressVerifications++; return verifyPublicSshIdentity(...args) }
   }
   assert.equal((await syncHostPublicIp(host.id, {}, ipDependencies)).blocked, false)
-  for (const [index, image] of ['alpine/3.24/cloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud'].entries()) {
+  for (const [index, image] of ['alpine/3.24/cloud', 'alpine/3.21/tinycloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud'].entries()) {
     if (process.env.INCUDAL_NATIVE_IMAGE && image !== process.env.INCUDAL_NATIVE_IMAGE) continue
     const name = `native-delivery-${index}`, password = randomUUID() + '-Aa1!', ip = `10.198.0.${100 + index}`
     const generated = generateIncusConfig({ instanceName: name, imageAlias: `images:${image}`, rootPassword: password,
@@ -145,6 +145,8 @@ try {
     assert.equal((scanned.metadata as { return?: number }).return, 0)
     const scannedKeys = scanned.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []
     assert.ok(scannedKeys.length && scannedKeys.every(key => pinnedKeys.includes(key)), `${image}: every OpenSSH host key is pinned, including newly supported algorithms`)
+    const probeTools = await execWithOutput(transport, name, ['sh', '-c', 'set -e; for tool in ssh ssh-keyscan ssh-keygen timeout; do command -v "$tool"; done; command -v curl || command -v python3'], {}, 5000)
+    assert.equal((probeTools.metadata as { return?: number }).return, 0, `${image}: IPv4-only controller guest IPv6 probe tools are installed`)
     if (image === 'debian/14/cloud') {
       const install = () => execWithOutput(transport, name, ['sh', '-c', dedicatedIpv6InstallScript(null, [])], {}, 20000)
       const configured = await install()

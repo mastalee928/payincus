@@ -257,7 +257,7 @@ function getSetupCommands(osInfo: OsInfo): string[] {
 
   // ================= Alpine =================
   if (osInfo.family === 'alpine') {
-    const essentialPkgs = 'openssh openssh-server-pam bash shadow sed grep dhcpcd util-linux ca-certificates iproute2'
+    const essentialPkgs = 'openssh openssh-server-pam bash shadow sed grep dhcpcd util-linux ca-certificates curl iproute2'
     const installCmd = `apk update && apk add --no-cache ${essentialPkgs}`
     cmds.push(wrapWithNetworkRetry(installCmd))
     cmds.push('/usr/local/bin/incudal-alpine-ssh-security.sh install')
