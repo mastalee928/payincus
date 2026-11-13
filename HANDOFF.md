@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+- 原批2f0ff43f CI43337700170已最终27/27success，预览43337716631十必需job全部success、Release预期skipped，Alpine43337700105success。原批闭环后开始排队「第三方开通失败自动退余额＋新文案」；当前原资金去向未改，正式v1.8.10未发布，须最终源码全部通过再发行。
+
+- 原批无tag预览43337716631已success：双构建／双首装／六原v1.8.9worker升级及故障回滚再升级10/10success，Release预期skipped。两实际包修复模块、242迁移、原pin签名hash/size/mode/架构、管理员API与用户权限边界独立核通过。CI43337700170尚待六分片浏览器尾段终态，无已知失败；未正式发行，新退款入余额要求仍待本批闭环后实施。
+
+- 原批已保存到PR13／2f0ff43f940bda0244dff885b4ace5d90ff73e71。CI43337700170真实机器池六系统×双架构12/12success、admin真实API／production bundlestep成功；整轮仍运行。Alpine43337700105已success；无tag预览43337716631 ARM64构建成功，AMD64／双首装／六旧worker升级未终态。Owner新门槛要求所有补充修完后才正式发布；后续自动退余额已授权而暂排队。详见[候选台账](docs/release-v1.8.10-validation.md)。不能据此发正式tag或称生产修复。
+
 - 本批新增管理退款模块缺失已修，真实admin alias／HTTP／生产bundle浏览器自然exit0；原第三方退款负债及回执状态回归另验，尚未改变退款去向。Owner新增第三方失败自动退余额（真实入账＋新文案）已授权但要求先完成当前批，列后续；永久执行顺序见OWNER_REQUIREMENTS。候选1.8.10未发行／生产未写。
 
 ## 2026-11-13 v1.8.9后仍失败：host38／test-1（生产只读，候选未发布）
