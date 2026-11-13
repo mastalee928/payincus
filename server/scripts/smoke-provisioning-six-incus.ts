@@ -62,6 +62,24 @@ const updateRealReceipts = async () => {
 
 try {
   const transport = await getIncusClient((await getHostById(host.id))!)
+  const verifyNativeSsh = async (name: string, password: string) => {
+    try {
+      await checkSshLogin('11.0.0.99', password, await instanceSshFingerprints(transport, name))
+    } catch (error) {
+      // Capture the guest and NAT state before disposable-runner cleanup. A
+      // completed task must not hide a later service or forwarding regression.
+      for (const command of [
+        ['incus', ['exec', name, '--', 'sh', '-c', 'systemctl status ssh.service payincus-image-bootstrap.service cloud-final.service systemd-networkd.service --no-pager; journalctl -u ssh.service -u payincus-image-bootstrap.service -u systemd-networkd.service -b --no-pager -n 75; ip -4 addr; ip -4 route; ss -lntp; ls -l /var/lib/incudal; true']],
+        ['sh', ['-c', 'incus network forward list incusbr0 --format=json; ip -4 route; ip neigh show; nft list ruleset; timeout 6 ssh-keyscan -T 3 11.0.0.99 2>&1; true']]
+      ] as const) {
+        try {
+          const output = execFileSync(command[0], [...command[1]], { encoding: 'utf8', timeout: 15000, maxBuffer: 131072 })
+          console.log(output.replaceAll(password, '[redacted]').replace(/(password|passwd|secret|token)[^\n]*/gi, '[redacted line]'))
+        } catch { console.log('Native post-rebuild SSH diagnostics unavailable') }
+      }
+      throw error
+    }
+  }
   for (let attempt = 0; attempt < 40; attempt++) {
     await updateRealReceipts()
     if ((await prisma.hostAgent.findUniqueOrThrow({ where: { hostId: host.id } })).lastSeenAt) break
@@ -229,7 +247,7 @@ try {
         const recovered = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
         assert.equal(recovered.status, 'running'); assert.equal(recovered.expiresAt?.getTime(), instance.expiresAt?.getTime())
         assert.equal(recovered.purchaseBatchId, instance.purchaseBatchId)
-        await checkSshLogin('11.0.0.99', decryptSensitiveData(recovered.rootPassword!), await instanceSshFingerprints(transport, name))
+        await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
         if (image === 'debian/11/cloud') {
           const beforeKeys = await instanceSshFingerprints(transport, name)
           const initial = await execWithOutput(transport, name, ['sh', '-c', 'set -e; . /etc/os-release; test "$VERSION_ID" = 11; test -f /var/lib/incudal/image-bootstrap-complete; test -f /var/lib/cloud/instance/boot-finished; printf original > /root/owner-image-marker; cat /proc/sys/kernel/random/boot_id'], {}, 10000)
@@ -246,7 +264,7 @@ try {
           }
           assert.ok(newBoot && newBoot !== initial.stdout)
           assert.deepEqual(await instanceSshFingerprints(transport, name), beforeKeys)
-          await checkSshLogin('11.0.0.99', decryptSensitiveData(recovered.rootPassword!), await instanceSshFingerprints(transport, name))
+          await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
           execFileSync('incus', ['restart', name, '--force'], { timeout: 30000 })
           let restarted = false
           for (let step = 0; step < 40; step++) {
@@ -258,7 +276,7 @@ try {
           }
           assert.equal(restarted, true)
           assert.deepEqual(await instanceSshFingerprints(transport, name), beforeKeys)
-          await checkSshLogin('11.0.0.99', decryptSensitiveData(recovered.rootPassword!), await instanceSshFingerprints(transport, name))
+          await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
           console.log('PASS owner Debian 11 native purchase/create, rebuild, stop/start and restart with retained disk/password and real SSH')
         }
         console.log('PASS native rebuild: genuine missing image failure is terminal, stopped retained, fresh consent rebuild succeeds with real password SSH and unchanged paid term')
