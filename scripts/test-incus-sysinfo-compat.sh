@@ -3,8 +3,8 @@
 set -eu
 test "${INCUDAL_SYSINFO_COMPAT_TEST:-}" = disposable
 test ! -e /var/lib/incus/database
-mkdir -p /sys/fs/cgroup/incudal-sysinfo-test/tasks
-echo $$ > /sys/fs/cgroup/incudal-sysinfo-test/tasks/cgroup.procs
+mkdir -p /sys/fs/cgroup/incudalsysinfo.slice/tasks
+echo $$ > /sys/fs/cgroup/incudalsysinfo.slice/tasks/cgroup.procs
 apk add --no-cache incus incus-client openrc apparmor-utils iproute2 python3
 mkdir -p /run/openrc
 touch /run/openrc/softlevel
@@ -51,3 +51,4 @@ timeout -s KILL 5 incus exec native-sysinfo -- timeout -s KILL 3 /root/sysinfo |
 grep -q '^SYSINFO_BYTES=134217728$' /tmp/sysinfo-fixed
 incus delete --force native-sysinfo
 echo 'PASS original Alpine daemon to fixed same version: UUID/PID/boot/disk retained and actual sysinfo=128MiB'
+
