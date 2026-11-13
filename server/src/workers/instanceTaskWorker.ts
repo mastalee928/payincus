@@ -63,13 +63,13 @@ import { prepareInstanceTaskSiteCleanup } from '../services/instance-task-site-c
 import { resolveInstanceTrafficLimitForHost } from '../lib/traffic-multiplier.js'
 import { calculateInstanceTrafficStatus } from '../services/traffic-utils.js'
 import { beginInstanceReinstall, reconcileInterruptedReinstalls } from '../services/instance-reinstall-identity.js'
-import { prepareNewContainerCloudInit, waitForNewGuestInitialization } from '../lib/new-container-cloud-init.js'
-import { ownerSelectedContainerImage } from '../lib/owner-selected-images.js'
+import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
+import { retiredDefaultSystemImage } from '../lib/retired-system-images.js'
 import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from '../lib/managed-cleanup-identity.js'
 import { readRegisteredGuest, readCreatedGuest, guardCopyMoveClient } from '../lib/guest-delivery-identity.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { officialImageAvailable } from '../lib/official-image-availability.js'
-import { resolveOwnerSelectedImage } from '../services/owner-selected-image-import.js'
+import { resolveCachedSystemImage } from '../services/system-image-import.js'
 import { randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
 import { Address6 } from 'ip-address'
@@ -1072,7 +1072,7 @@ async function executeRebuildTask(
   // Validate/import bundled bytes before removing snapshots or changing the
   // original disk/config. The final rebuild still uses the guarded request.
   const originalType = (await getInstance(client, instance.incus_id)).type
-  const bundledFingerprint = await resolveOwnerSelectedImage(client, imageAlias, originalType === 'virtual-machine' ? 'vm' : 'container')
+  const bundledFingerprint = await resolveCachedSystemImage(client, imageAlias, originalType === 'virtual-machine' ? 'vm' : 'container')
   // Only inject a key explicitly selected for this rebuild. Omitting it means password login.
   const { sshKey, extraShellCommands } = materials
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
@@ -1337,9 +1337,6 @@ async function finishRebuildTask(
     throw Error('REBUILD_NETWORK_UNCONFIRMED')
   }
   await reinstall.source()
-  if (ownerSelectedContainerImage(imageAlias, imageAlias.endsWith('/arm64') ? 'aarch64' : 'x86_64')) {
-    await waitForNewGuestInitialization(client, instance.incus_id, configPayload)
-  }
   const password = decryptSensitiveData(encryptedPassword)
   if (!password) throw Error('REBUILD_PASSWORD_UNAVAILABLE')
   const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId, {
@@ -2228,6 +2225,14 @@ export async function reconcileInterruptedRebuilds() {
   reconcilingRebuilds = true
   try {
   const expired = new Date(Date.now() - HEAVY_TASK_TIMEOUT)
+  const retiredTasks = await prisma.instanceTask.findMany({ where: { taskType: 'rebuild', status: 'PROCESSING',
+    imageAlias: { in: ['images:debian/11/cloud', 'images:debian/11/cloud/arm64', 'images:ubuntu/25.10/cloud', 'images:ubuntu/25.10/cloud/arm64'] },
+    replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' } }, orderBy: { id: 'asc' }, take: 10 })
+  for (const task of retiredTasks) {
+    if (runningTaskIds.has(task.id)) continue
+    try { await (await import('../services/instance-reinstall-identity.js')).reconcileExpiredRebuild(task) }
+    catch (error) { console.warn(`[Rebuild] 撤除镜像任务 ${task.id} 收尾待核验:`, error instanceof Error ? error.message : 'verification failed') }
+  }
   const expiredTasks = await prisma.instanceTask.findMany({ where: { taskType: 'rebuild', status: 'PROCESSING',
     startedAt: { lte: expired }, replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' },
     OR: [{ replacementState: { path: ['rebuildFailureCheckAt'], equals: Prisma.AnyNull } },
@@ -2252,6 +2257,7 @@ export async function reconcileInterruptedRebuilds() {
     ] }, orderBy: { id: 'asc' }, take: 10 })
   for (const task of tasks) {
     if (runningTaskIds.has(task.id)) continue
+    if (retiredDefaultSystemImage(task.imageAlias || '')) continue
     const state = task.replacementState as Prisma.JsonObject
     if (!task.startedAt || Date.now() - task.startedAt.getTime() >= HEAVY_TASK_TIMEOUT) {
       await prisma.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', replacementState: { equals: state } },

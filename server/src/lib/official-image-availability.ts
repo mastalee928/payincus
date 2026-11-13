@@ -1,4 +1,4 @@
-import { ownerSelectedContainerImage } from './owner-selected-images.js'
+import { retiredDefaultSystemImage } from './retired-system-images.js'
 import { cachedSystemImagePresent } from '../services/system-image-cache.js'
 
 const endpoint = 'https://images.linuxcontainers.org/streams/v1/images.json'
@@ -45,7 +45,7 @@ async function catalog(): Promise<Catalog | null> {
 }
 
 export function officialImagePresent(aliases: Catalog, remoteAlias: string, architecture: string, type: 'container' | 'vm' | 'both'): boolean {
-  if (ownerSelectedContainerImage(remoteAlias, architecture)) return type !== 'vm'
+  if (retiredDefaultSystemImage(remoteAlias)) return false
   if (!remoteAlias.startsWith('images:')) return true
   const arch = ['aarch64','arm64'].includes(architecture) ? 'arm64' : ['amd64','x86_64'].includes(architecture) ? 'amd64' : null
   if (!arch) return true // Unknown architectures are handled by the existing host gate.
@@ -56,7 +56,7 @@ export function officialImagePresent(aliases: Catalog, remoteAlias: string, arch
 /** Only a complete successful catalog proves an alias was withdrawn.
  * Network failure is not an empty inventory and never rewrites admin data. */
 export async function officialImageAvailable(remoteAlias: string, architecture: string, type: 'container' | 'vm' | 'both'): Promise<boolean | null> {
-  if (ownerSelectedContainerImage(remoteAlias, architecture)) return type !== 'vm'
+  if (retiredDefaultSystemImage(remoteAlias)) return false
   if (!remoteAlias.startsWith('images:')) return true
   if (type === 'both' ? await cachedSystemImagePresent(remoteAlias, architecture, 'container') || await cachedSystemImagePresent(remoteAlias, architecture, 'vm') :
     await cachedSystemImagePresent(remoteAlias, architecture, type)) return true
@@ -65,6 +65,7 @@ export async function officialImageAvailable(remoteAlias: string, architecture: 
 }
 
 export async function filterAvailableOfficialImages<T extends { remoteAlias: string; architecture: string; instanceType: string }>(images: T[], type?: 'container' | 'vm'): Promise<T[]> {
+  images = images.filter(image => !retiredDefaultSystemImage(image.remoteAlias))
   if (!images.some(image => image.remoteAlias.startsWith('images:'))) return images
   const data = await catalog()
   if (!data) return images

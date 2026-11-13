@@ -202,7 +202,6 @@ const cloudInitClient = {
 }
 await prepareNewContainerCloudInit(cloudInitClient, 'new-customer', { 'user.user-data': '#cloud-config\n{}' })
 assert.deepEqual(cloudInitRequests, [
-  { method: 'GET', path: '/1.0/instances/new-customer' },
   { method: 'DELETE', path: '/1.0/instances/new-customer/files?path=/etc/cloud/cloud-init.disabled' }
 ])
 cloudInitRequests.length = 0
@@ -213,19 +212,13 @@ for (const config of emptyCloudInitConfigs) {
 await prepareNewContainerCloudInit(cloudInitClient, 'vm', { 'user.user-data': '#cloud-config\n{}' }, 'vm')
 assert.equal(cloudInitRequests.length, 0, 'VMs and creates without requested cloud-init must not touch guest files')
 await prepareNewContainerCloudInit(cloudInitClient, 'new-cloud-key', { 'cloud-init.user-data': '#cloud-config\n{}' })
-assert.equal(cloudInitRequests.length, 2)
+assert.equal(cloudInitRequests.length, 1)
 const missingMarkerClient = { async request<T>(method: string, path: string): Promise<T> { if(method==='GET')return {} as T; throw new IncusApiError('marker absent', 404, path) } }
 await prepareNewContainerCloudInit(missingMarkerClient, 'new-no-marker', { 'user.user-data': '#cloud-config\n{}' })
 for (const failure of ['permission denied', 'Incus unavailable', 'open /etc/cloud/cloud-init.disabled: no such file or directory']) {
   const failingClient = { async request<T>(): Promise<T> { throw Error(failure) } }
   await assert.rejects(prepareNewContainerCloudInit(failingClient, 'new-failing', { 'user.user-data': '#cloud-config\n{}' }), new RegExp(failure))
 }
-const bootstrapRequests: string[] = []
-await prepareNewContainerCloudInit({ async request<T>(method: string): Promise<T> {
-  bootstrapRequests.push(method)
-  return { config: { 'image.user.payincus.source-sha256': '7343b1d120bfadde3888c221d959501b9991ffaea81e60f977555c94775ab463' } } as T
-} }, 'pinned-debian11', { 'user.user-data': '#cloud-config\n{}' })
-assert.deepEqual(bootstrapRequests, ['GET'], 'the pinned first-boot installer owns its cloud-init disable marker')
 for (const source of [createInstanceAsyncSection, adminAsyncSection, managedAsyncSection]) {
   const create = source.indexOf('await createInstance(client, incusConfig)')
   const prepare = source.indexOf('await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)')

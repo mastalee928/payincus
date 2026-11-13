@@ -16,10 +16,11 @@ import { authorizeUserWrite } from '../db/user-write-authorization.js'
 import { assertHostNotMaintaining } from '../lib/host-maintenance-gate.js'
 import { sameGuestCreationTime } from '../lib/guest-identity-time.js'
 import { IncusOperationFailedError } from '../lib/incus/incus-utils.js'
+import { retiredDefaultSystemImage } from '../lib/retired-system-images.js'
 
 const record = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
 const validUuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value)
-type IncusInstance = BaseIncusInstance & { created_at: string; project?: string }
+type IncusInstance = BaseIncusInstance & { created_at: string; project?: string; ephemeral?: boolean }
 const rebuildConfigHash = (config: Record<string, string>) => createHash('sha256').update(JSON.stringify(
   Object.entries(config).filter(([key]) => !key.startsWith('volatile.') && !key.startsWith('image.')).sort(([a], [b]) => a.localeCompare(b))
 )).digest('hex')
@@ -215,9 +216,10 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
  * endpoint proves no operation is in flight. This is a failed task, never a
  * successful rebuild or proof that the old root filesystem is intact. */
 export async function reconcileExpiredRebuild(task: InstanceTask): Promise<boolean> {
-  if (recoveryHeld() || !task.startedAt || Date.now() - task.startedAt.getTime() < 30 * 60000) return false
+  const retired = retiredDefaultSystemImage(task.imageAlias || '')
+  if (recoveryHeld() || !task.startedAt || (!retired && Date.now() - task.startedAt.getTime() < 30 * 60000)) return false
   const state = record(task.replacementState)
-  if (state.targetPhase !== 'rebuild_uncertain' || state.rebuildCompleted ||
+  if (state.targetPhase !== 'rebuild_uncertain' || (state.rebuildCompleted && !retired) ||
       state.rebuildOperation && !/^\/1\.0\/operations\/[a-f0-9-]+$/i.test(state.rebuildOperation)) return false
   const row = await prisma.instance.findUniqueOrThrow({ where: { id: task.instanceId } })
   const host = await prisma.host.findUniqueOrThrow({ where: { id: task.hostId } })
@@ -233,8 +235,9 @@ export async function reconcileExpiredRebuild(task: InstanceTask): Promise<boole
   let result = state.rebuildOperation ? 'operation_expired' : 'operation_receipt_missing'
   if (state.rebuildOperation) try {
     const op = await client.request<{ status?: string; status_code?: number }>('GET', state.rebuildOperation, null, 8000)
-    if (op.status !== 'Failure' || op.status_code !== 400) return false
-    result = 'operation_failed'
+    if (op.status === 'Failure' && op.status_code === 400) result = 'operation_failed'
+    else if (retired && op.status === 'Success' && op.status_code === 200) result = 'image_retired'
+    else return false
   } catch (error) {
     if (!(error instanceof IncusApiError) || error.statusCode !== 404 || error.path !== state.rebuildOperation) throw error
   }
@@ -242,7 +245,8 @@ export async function reconcileExpiredRebuild(task: InstanceTask): Promise<boole
   const remote = await client.request<IncusInstance>('GET', `/1.0/instances/${encodeURIComponent(row.incusId)}`, null, 8000)
   const pkg = row.packageId ? await prisma.package.findUnique({ where: { id: row.packageId } }) : null
   const cleanup = record(record(row.snapshottedSpecs).managedCleanup)
-  if (remote.name !== row.incusId || (remote.project || 'default') !== 'default' || remote.status !== 'Stopped' ||
+  if (remote.name !== row.incusId || (remote.project || 'default') !== 'default' ||
+      (remote.status !== 'Stopped' && !(retired && remote.status === 'Running' && remote.ephemeral === false)) ||
       remote.type !== (pkg?.instanceType === 'vm' ? 'virtual-machine' : 'container') ||
       remote.config?.['volatile.uuid'] !== identity.uuid || !sameGuestCreationTime(remote.created_at, identity.createdAt) ||
       cleanup.uuid === identity.uuid && (cleanup.endpointHash !== managedCleanupEndpointHash(client) ||
@@ -259,14 +263,31 @@ export async function reconcileExpiredRebuild(task: InstanceTask): Promise<boole
         await tx.restoreTask.count({ where: { instanceId: row.id, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
         await tx.backupUploadTask.count({ where: { instanceId: row.id, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
         await tx.instanceTask.count({ where: { instanceId: row.id, id: { not: task.id }, status: { in: ['PENDING', 'PROCESSING'] } } })) return false
+    if (retired) {
+      const currentTask = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+      if (currentTask.status !== 'PROCESSING' || !isDeepStrictEqual(currentTask.replacementState, task.replacementState) ||
+          currentTask.startedAt?.getTime() !== task.startedAt?.getTime() || currentTask.retryCount !== task.retryCount) return false
+      await assertNoActiveInstanceOperations(client, row.incusId)
+      const confirmed = await client.request<IncusInstance>('GET', `/1.0/instances/${encodeURIComponent(row.incusId)}`, null, 5000)
+      if (confirmed.config?.['volatile.uuid'] !== remote.config?.['volatile.uuid'] || !sameGuestCreationTime(confirmed.created_at, remote.created_at) ||
+          rebuildConfigHash(confirmed.config || {}) !== state.rebuildConfigHash || confirmed.type !== remote.type ||
+          confirmed.name !== row.incusId || (confirmed.project || 'default') !== 'default') return false
+      if (confirmed.status === 'Running' && confirmed.ephemeral === false) {
+        await client.withMaintenanceDatabase(tx).request('PUT', `/1.0/instances/${encodeURIComponent(row.incusId)}/state`,
+          { action: 'stop', force: true, timeout: 5 }, 8000)
+      } else if (confirmed.status !== 'Stopped') return false
+      const stopped = await client.request<{ status?: string }>('GET', `/1.0/instances/${encodeURIComponent(row.incusId)}/state`, null, 5000)
+      if (stopped.status !== 'Stopped') return false
+    }
     const { pendingRootPassword: _password, ...receipt } = state
     return (await tx.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', startedAt: task.startedAt,
       retryCount: task.retryCount, replacementState: { equals: task.replacementState! } }, data: {
       status: 'FAILED', finishedAt: new Date(), progress: 'failed',
-      error: '重装未完成，已确认实例停止且无在途操作；请重新选择镜像重装',
-      replacementState: { ...receipt, targetPhase: 'rebuild_failed', requiresRebuild: true, failureEvidence: result }
+      error: retired ? '所选镜像已撤除，已确认实例停止且无在途操作；请重新选择镜像重装' :
+        '重装未完成，已确认实例停止且无在途操作；请重新选择镜像重装',
+      replacementState: { ...receipt, ...(retired ? { rebuildCompleted: false } : {}), targetPhase: 'rebuild_failed', requiresRebuild: true, failureEvidence: retired ? 'image_retired' : result }
     } })).count === 1
-  })
+  }, { maxWait: 3000, timeout: 20000 })
 }
 
 /** Reconcile only the recorded copy after interruption. Before a switch, clean

@@ -6,6 +6,7 @@ import { IncusApiError, type IncusClient } from '../lib/incus/incus-client.js'
 import { waitForOperation } from '../lib/incus/incus-utils.js'
 import type { IncusApiResponse } from '../types/incus.js'
 import { cacheSystemImage, imagePartPath, type CachedSystemImage } from './system-image-cache.js'
+import { retiredDefaultSystemImage } from '../lib/retired-system-images.js'
 
 const imports = new Map<string, Promise<void>>()
 async function verifyImported(client: IncusClient, archive: CachedSystemImage) {
@@ -32,7 +33,7 @@ async function upload(client: IncusClient, archive: CachedSystemImage) {
     const chunks: Buffer[] = []; let size = 0
     for await (const chunk of response.body) {
       size += chunk.length
-      if (size > 65536) throw Error('OWNER_IMAGE_IMPORT_RESPONSE_TOO_LARGE')
+      if (size > 65536) throw Error('SYSTEM_IMAGE_IMPORT_RESPONSE_TOO_LARGE')
       chunks.push(Buffer.from(chunk))
     }
     const data = JSON.parse(Buffer.concat(chunks).toString('utf8')) as IncusApiResponse
@@ -42,16 +43,17 @@ async function upload(client: IncusClient, archive: CachedSystemImage) {
       return
     }
     if (data.type === 'async') {
-      if (!data.operation || !/^\/1\.0\/operations\/[a-f0-9-]{36}$/i.test(data.operation)) throw Error('OWNER_IMAGE_IMPORT_RECEIPT_INVALID')
+      if (!data.operation || !/^\/1\.0\/operations\/[a-f0-9-]{36}$/i.test(data.operation)) throw Error('SYSTEM_IMAGE_IMPORT_RECEIPT_INVALID')
       await waitForOperation(client, data.operation, 180000, signal)
-    } else if (data.type !== 'sync') throw Error('OWNER_IMAGE_IMPORT_RECEIPT_INVALID')
+    } else if (data.type !== 'sync') throw Error('SYSTEM_IMAGE_IMPORT_RECEIPT_INVALID')
     await verifyImported(client, archive)
   } finally { stream.destroy(); await transport.destroy().catch(() => {}); release() }
 }
 
 /** Resolve a persistent controller image before the guarded create/rebuild.
  * Only the registered image transport imports it; no guest mutation here. */
-export async function resolveOwnerSelectedImage(client: IncusClient, alias: string, instanceType: 'container' | 'vm'): Promise<string | null> {
+export async function resolveCachedSystemImage(client: IncusClient, alias: string, instanceType: 'container' | 'vm'): Promise<string | null> {
+  if (retiredDefaultSystemImage(alias)) throw Error('SYSTEM_IMAGE_RETIRED')
   if (!alias.startsWith('images:')) return null
   const server = await client.request<{ environment?: { kernel_architecture?: string } }>('GET', '/1.0', null, 10000)
   const archive = await cacheSystemImage(alias, server.environment?.kernel_architecture || '', instanceType)

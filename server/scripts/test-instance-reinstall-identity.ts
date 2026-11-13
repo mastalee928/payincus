@@ -76,7 +76,7 @@ const remote = createServer({ key: await readFile(keyPath), cert, ca: cert, requ
     if (suffix === '/rebuild') {
       assert.equal(guest.config['security.privileged'], 'false')
       if (mode === 'lost-response') return fail(500, 'fixture rebuild response lost')
-      if (mode === 'lost-waiter' || mode.startsWith('expired-') || mode.startsWith('failed-')) { res.end(JSON.stringify({ type: 'async', operation: rebuildOperation })); return }
+      if (mode === 'lost-waiter' || mode === 'retired-completed' || mode.startsWith('expired-') || mode.startsWith('failed-')) { res.end(JSON.stringify({ type: 'async', operation: rebuildOperation })); return }
       return ok()
     }
     if (suffix === '/state') {
@@ -112,8 +112,8 @@ try {
   const currentHost = await prisma.host.update({ where: { id: host.id }, data: { architecture } })
   await prisma.systemImage.update({ where: { id: image.id }, data: { architecture } })
   await prisma.host.update({ where: { id: targetHost.id }, data: { architecture } })
-  for (const taskType of ['rebuild', 'recreate', 'clone', 'change_host'] as const) for (const scenario of ['success', 'unknown-original', 'wrong-uuid', 'wrong-type', 'lost-response', 'cleanup-refused', 'alien-target', 'actor-revoked', 'late-cancel', 'lost-waiter', 'legacy-marker', 'dual-stack', 'running-source', 'vm-macs', 'public-ipv4', 'public-vm', 'failed-operation', 'failed-envelope', 'expired-missing', 'expired-busy', 'expired-success', 'expired-malformed', 'expired-wrong-uuid']) {
-    if ((scenario.startsWith('expired-') || scenario.startsWith('failed-')) && taskType !== 'rebuild') continue
+  for (const taskType of ['rebuild', 'recreate', 'clone', 'change_host'] as const) for (const scenario of ['success', 'unknown-original', 'wrong-uuid', 'wrong-type', 'lost-response', 'cleanup-refused', 'alien-target', 'actor-revoked', 'late-cancel', 'lost-waiter', 'legacy-marker', 'dual-stack', 'running-source', 'vm-macs', 'public-ipv4', 'public-vm', 'failed-operation', 'failed-envelope', 'expired-missing', 'expired-busy', 'expired-success', 'expired-malformed', 'expired-wrong-uuid', 'retired-completed']) {
+    if ((scenario.startsWith('expired-') || scenario.startsWith('failed-') || scenario === 'retired-completed') && taskType !== 'rebuild') continue
     if (process.env.REVIEW_REINSTALL_SCOPE === 'pool-cleanup' && (taskType !== 'recreate' || scenario !== 'cleanup-refused')) continue
     if (['public-ipv4', 'public-vm'].includes(scenario) && !['rebuild', 'recreate'].includes(taskType)) continue
     if (['lost-waiter', 'legacy-marker'].includes(scenario) && taskType !== 'rebuild' || scenario === 'dual-stack' && taskType !== 'clone') continue
@@ -221,11 +221,26 @@ try {
       else assert.equal(await reconcileExpiredRebuild(stale), scenario === 'expired-missing')
       assert.equal(calls.filter(call => !call.startsWith('GET ')).length, beforeWrites, 'receipt reconciliation must not write, restart or repeat rebuild')
     }
+    if (scenario === 'retired-completed') {
+      const saved = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+      const retired = await prisma.instanceTask.update({ where: { id: task.id }, data: { imageAlias: 'images:debian/11/cloud',
+        replacementState: { ...(saved.replacementState as any), rebuildCompleted: true } } })
+      guests.get(originalName).status = 'Running'
+      guests.get(originalName).ephemeral = true
+      assert.equal(await reconcileExpiredRebuild(retired), false, 'ephemeral retired guest must not be stopped or deleted by settlement')
+      guests.get(originalName).ephemeral = false
+      guests.get(originalName).status = 'Running'
+      const writes = calls.filter(call => !call.startsWith('GET ')).length
+      assert.equal(await reconcileExpiredRebuild(retired), true, 'retired failed initialization settles after original stopped identity and no in-flight operation proof')
+      assert.equal(calls.filter(call => !call.startsWith('GET ')).length, writes + 1, 'only original persistent guest receives one stop')
+      assert.equal(guests.get(originalName).status, 'Stopped')
+      assert.equal(await reconcileExpiredRebuild(retired), false, 'settlement is idempotent')
+    }
     if (['clone', 'change_host'].includes(taskType) && scenario === 'lost-response') await reconcileInterruptedReinstalls()
     const result = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
     const row = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
     assert.equal(Number(row.billingPrice), taskType === 'clone' ? 0 : 15); assert.equal(row.expiresAt?.getTime(), instance.expiresAt?.getTime()); assert.equal(row.autoRenew, true)
-    if (scenario.startsWith('failed-') || scenario === 'expired-missing') {
+    if (scenario.startsWith('failed-') || scenario === 'expired-missing' || scenario === 'retired-completed') {
       assert.equal(result.status, 'FAILED', result.error || '')
       assert.equal((result.replacementState as any).targetPhase, 'rebuild_failed')
       assert.ok(!(result.replacementState as any).pendingRootPassword)

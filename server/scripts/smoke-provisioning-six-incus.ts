@@ -96,7 +96,7 @@ try {
     verify: async (...args: Parameters<typeof verifyPublicSshIdentity>) => { addressVerifications++; return verifyPublicSshIdentity(...args) }
   }
   assert.equal((await syncHostPublicIp(host.id, {}, ipDependencies)).blocked, false)
-  for (const [index, image] of ['alpine/3.24/cloud', 'alpine/3.21/tinycloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud', 'debian/11/cloud'].entries()) {
+  for (const [index, image] of ['alpine/3.24/cloud', 'alpine/3.21/tinycloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud'].entries()) {
     if (process.env.INCUDAL_NATIVE_IMAGE && image !== process.env.INCUDAL_NATIVE_IMAGE) continue
     const name = `native-delivery-${index}`, password = randomUUID() + '-Aa1!', ip = `10.10.1.${100 + index}`
     const generated = generateIncusConfig({ instanceName: name, imageAlias: `images:${image}`, rootPassword: password,
@@ -122,12 +122,6 @@ try {
     })()
     const diagnostics = setInterval(() => {
       try {
-        if (image === 'debian/11/cloud') {
-          const bootstrap = execFileSync('incus', ['exec', name, '--', 'sh', '-c',
-            'systemctl status payincus-image-bootstrap.service systemd-networkd.service systemd-networkd-wait-online.service --no-pager; journalctl -u payincus-image-bootstrap.service -b --no-pager -n 80; find /var/lib/cloud/seed -type f -printf "%p %s bytes\\n"; ls -l /var/lib/incudal /usr/local/sbin/payincus-image-bootstrap; cat /var/lib/incudal/image-bootstrap-failed; ip -4 addr show; ip -4 route show; cat /etc/resolv.conf'],
-            { encoding: 'utf8', timeout: 10000, maxBuffer: 32768 })
-          console.log(bootstrap.replaceAll(password, '[redacted]').replace(/(password|passwd|secret|token)[^\n]*/gi, '[redacted line]'))
-        }
         const output = execFileSync('incus', ['exec', name, '--', 'sh', '-c',
           'cloud-init status --long; cloud-init schema --system; cat /var/lib/cloud/instance/scripts/runcmd; grep -E \"runcmd|scripts-user|ERROR|failed|WARN\" /var/log/cloud-init.log | tail -n 20; grep -E \"INCUDAL_INIT|INCUDAL_SETUP|error|Error|not found|Missing|failed|apt|Get:|Hit:|sshd|Permission\" /var/log/cloud-init-output.log | tail -n 45; tail -n 15 /var/log/cloud-init-output.log; ls -l /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /var/lib/incudal /usr/local/bin/incudal-required-init.sh /usr/local/bin/incus-setup.sh; cat /var/lib/incudal/ssh-setup-failed /var/lib/incudal/initialization-failed; head -n 25 /var/lib/incudal/sshd-effective-config; /usr/sbin/sshd -t; /usr/sbin/sshd -T -C user=root,host=localhost,addr=127.0.0.1 | grep -E \"^(passwordauthentication|permitrootlogin) \"; date -u; ps | head -n 16; cat /etc/resolv.conf; cat /sys/class/net/eth0/mtu; python3 -c \"import ssl,urllib.request; print(ssl.get_default_verify_paths()); print(urllib.request.urlopen(\\\"https://dl-cdn.alpinelinux.org/alpine/v3.24/main/\\\", timeout=3).status)\"'],
           { encoding: 'utf8', timeout: 5000, maxBuffer: 32768 })
@@ -213,7 +207,7 @@ try {
       await checkSshLogin('11.0.0.99', password, pinnedKeys)
       console.log('PASS real Debian reboot: old IPv6/cloud-init cycle repaired, next boot completes, original initialization/password/keys retained')
     }
-    if (image === 'alpine/3.24/cloud' || image === 'debian/11/cloud') {
+    if (image === 'alpine/3.24/cloud') {
       // Native Incus failure (not a mocked response) followed by fresh owner
       // consent must unlock and successfully rebuild the same paid instance.
       execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })
@@ -249,42 +243,6 @@ try {
         assert.equal(recovered.purchaseBatchId, instance.purchaseBatchId)
         await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
         console.log('PASS native post-rebuild password SSH before stop/start')
-        if (image === 'debian/11/cloud') {
-          const beforeKeys = await instanceSshFingerprints(transport, name)
-          const initial = await execWithOutput(transport, name, ['sh', '-c', 'set -e; . /etc/os-release; test "$VERSION_ID" = 11; test -f /var/lib/incudal/image-bootstrap-complete; test -f /var/lib/cloud/instance/boot-finished; printf original > /root/owner-image-marker; cat /proc/sys/kernel/random/boot_id'], {}, 10000)
-          assert.equal((initial.metadata as any).return, 0)
-          const stopped = await requestNativeOperation('stop')
-          assert.equal(stopped.status, 'COMPLETED', stopped.error || '')
-          assert.equal(JSON.parse(execFileSync('incus', ['query', `/1.0/instances/${name}/state`], { encoding: 'utf8' })).status, 'Stopped')
-          const started = await requestNativeOperation('start')
-          assert.equal(started.status, 'COMPLETED', started.error || '')
-          let newBoot = ''
-          for (let step = 0; step < 40; step++) {
-            try {
-              const check = await execWithOutput(transport, name, ['sh', '-c', 'set -e; test "$(cat /root/owner-image-marker)" = original; test -f /var/lib/cloud/instance/boot-finished; cat /proc/sys/kernel/random/boot_id'], {}, 6000)
-              if ((check.metadata as any).return === 0) { newBoot = check.stdout; break }
-            } catch { /* Native guest startup is observed, not presumed. */ }
-            await new Promise(resolve => setTimeout(resolve, 1500))
-          }
-          assert.ok(newBoot && newBoot !== initial.stdout)
-          assert.deepEqual(await instanceSshFingerprints(transport, name), beforeKeys)
-          await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
-          console.log('PASS native customer stop/start task and retained password SSH')
-          const restart = await requestNativeOperation('restart')
-          assert.equal(restart.status, 'COMPLETED', restart.error || '')
-          let restarted = false
-          for (let step = 0; step < 40; step++) {
-            try {
-              const check = await execWithOutput(transport, name, ['sh', '-c', 'set -e; test "$(cat /root/owner-image-marker)" = original; test -f /var/lib/cloud/instance/boot-finished; cat /proc/sys/kernel/random/boot_id'], {}, 6000)
-              if ((check.metadata as any).return === 0 && check.stdout !== newBoot) { restarted = true; break }
-            } catch { /* Observe restart completion. */ }
-            await new Promise(resolve => setTimeout(resolve, 1500))
-          }
-          assert.equal(restarted, true)
-          assert.deepEqual(await instanceSshFingerprints(transport, name), beforeKeys)
-          await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
-          console.log('PASS owner Debian 11 native purchase/create, rebuild, stop/start and restart with retained disk/password and real SSH')
-        }
         console.log('PASS native rebuild: genuine missing image failure is terminal, stopped retained, fresh consent rebuild succeeds with real password SSH and unchanged paid term')
       } finally { await prisma.systemImage.deleteMany({ where: { id: { in: fixtureImages.map(row => row.id) } } }) }
     }

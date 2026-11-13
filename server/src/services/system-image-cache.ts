@@ -2,20 +2,15 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, mkdir, open, readFile, rename, rm, writeFile, statfs } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { ownerSelectedContainerImage } from '../lib/owner-selected-images.js'
+import { retiredDefaultSystemImage } from '../lib/retired-system-images.js'
 
 export type CachedImagePart = { file: string; sha256: string; size: number; url?: string }
 export type CachedSystemImage = { version: 1; alias: string; architecture: 'x86_64' | 'aarch64'; type: 'container' | 'vm';
-  fingerprint: string; parts: CachedImagePart[]; sourceSha256?: string; preparationRevision?: string }
-const exec = promisify(execFile)
+  fingerprint: string; parts: CachedImagePart[] }
 const inFlight = new Map<string, Promise<CachedSystemImage>>()
 const downloading = new Map<string, Promise<string>>()
 const root = () => resolve(process.env.SYSTEM_IMAGE_CACHE_DIR || '/var/lib/incudal-images')
 const imageKey = (alias: string, architecture: string, type: string) => createHash('sha256').update(JSON.stringify([alias, architecture, type])).digest('hex')
-const templates = fileURLToPath(new URL('../../templates/', import.meta.url))
 const validHash = (hash: unknown): hash is string => typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash)
 export async function hashImageFile(file: string) {
   const hash = createHash('sha256')
@@ -109,27 +104,6 @@ async function officialCatalog(signal?: AbortSignal) {
   if (!data?.products || typeof data.products !== 'object' || Array.isArray(data.products)) throw Error('SYSTEM_IMAGE_CATALOG_INVALID')
   catalog = { at: Date.now(), data }; return data
 }
-async function ownerImage(alias: string, architecture: 'x86_64' | 'aarch64', type: 'container' | 'vm', key: string, signal?: AbortSignal): Promise<CachedSystemImage> {
-  const image = ownerSelectedContainerImage(alias, architecture)
-  if (!image || type !== 'container') throw Error('SYSTEM_IMAGE_CONTAINER_REQUIRED')
-  const source = await download(`https://github.com/xkatld/zjmf-lxd-server/releases/download/images/debian11-${image.archiveArchitecture}.tar.gz`, image.sha256, image.size, signal)
-  const converter = join(templates, 'prepare-owner-debian11-image.py')
-  const revision = createHash('sha256').update(await readFile(converter)).update(await readFile(join(templates, 'owner-debian11-bootstrap.sh'))).digest('hex')
-  const temporary = join(root(), key + '.' + randomUUID() + '.build')
-  const space = await statfs(root())
-  if (space.bavail * space.bsize < image.size + 512 * 1024 ** 2) throw Error('SYSTEM_IMAGE_CACHE_DISK_LOW')
-  try {
-    const result = await exec(process.platform === 'win32' ? 'python' : 'python3', [converter, source, temporary, image.archiveArchitecture], { timeout: 180000, maxBuffer: 8192, signal })
-    const metadata = JSON.parse(result.stdout)
-    if (metadata.architecture !== architecture || metadata.sourceSha256 !== image.sha256 || !validHash(metadata.sha256) || await hashImageFile(temporary) !== metadata.sha256) throw Error('SYSTEM_IMAGE_PREPARATION_UNVERIFIED')
-    await rename(temporary, join(root(), metadata.sha256 + '.image'))
-    return { version: 1, alias, architecture, type, fingerprint: metadata.sha256, parts: [{ file: metadata.sha256 + '.image', sha256: metadata.sha256, size: metadata.size }], sourceSha256: image.sha256, preparationRevision: revision }
-  } finally { await rm(temporary, { force: true }) }
-}
-async function ownerPreparationRevision() {
-  return createHash('sha256').update(await readFile(join(templates, 'prepare-owner-debian11-image.py')))
-    .update(await readFile(join(templates, 'owner-debian11-bootstrap.sh'))).digest('hex')
-}
 async function officialImage(alias: string, architecture: 'x86_64' | 'aarch64', type: 'container' | 'vm', signal?: AbortSignal): Promise<CachedSystemImage> {
   const data = await officialCatalog(signal), arch = architecture === 'x86_64' ? 'amd64' : 'arm64'
   const remote = alias.slice(7).replace(/\/(?:amd64|arm64|x86_64|aarch64)$/, '')
@@ -158,6 +132,7 @@ async function officialImage(alias: string, architecture: 'x86_64' | 'aarch64', 
  * replace an already verified image. Only missing/corrupt data is fetched. */
 export async function cacheSystemImage(alias: string, architecture: string, type: 'container' | 'vm', signal?: AbortSignal): Promise<CachedSystemImage> {
   signal?.throwIfAborted()
+  if (retiredDefaultSystemImage(alias)) throw Error('SYSTEM_IMAGE_RETIRED')
   if (!alias.startsWith('images:') || !['x86_64', 'aarch64', 'amd64', 'arm64'].includes(architecture)) throw Error('SYSTEM_IMAGE_TARGET_INVALID')
   const arch = ['aarch64', 'arm64'].includes(architecture) ? 'aarch64' : 'x86_64'
   const suffix = alias.match(/\/(amd64|arm64|x86_64|aarch64)$/)?.[1]
@@ -172,16 +147,15 @@ export async function cacheSystemImage(alias: string, architecture: string, type
         const path = join(root(), key + '.json'), info = await lstat(path)
         if (!info.isFile() || info.isSymbolicLink() || info.size > 8192) throw Error('SYSTEM_IMAGE_RECEIPT_INVALID')
         receipt = JSON.parse(await readFile(path, 'utf8')); validateReceipt(receipt!, alias, arch, type)
-        const preparationCurrent = !ownerSelectedContainerImage(alias, arch) || receipt!.preparationRevision === await ownerPreparationRevision()
-        if (preparationCurrent && await verifyParts(receipt!)) return receipt!
+        if (await verifyParts(receipt!)) return receipt!
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
       // Exact original URLs/hashes can repair data without changing its pin.
-      if (receipt && !ownerSelectedContainerImage(alias, arch) && receipt.parts.every(part =>
+      if (receipt && receipt.parts.every(part =>
         typeof part.url === 'string' && /^https:\/\/images\.linuxcontainers\.org\/images\/[a-zA-Z0-9_:./-]+$/.test(part.url) && !part.url.split('/').includes('..'))) {
         for (const part of receipt.parts) await download(part.url!, part.sha256, part.size, signal)
         if (await verifyParts(receipt)) return receipt
       }
-      const image = ownerSelectedContainerImage(alias, arch) ? await ownerImage(alias, arch, type, key, signal) : await officialImage(alias, arch, type, signal)
+      const image = await officialImage(alias, arch, type, signal)
       signal?.throwIfAborted()
       await save(key, image); return image
     })()
@@ -191,7 +165,7 @@ export async function cacheSystemImage(alias: string, architecture: string, type
 }
 
 export async function cachedSystemImagePresent(alias: string, architecture: string, type: 'container' | 'vm'): Promise<boolean> {
-  if (!['x86_64', 'aarch64', 'amd64', 'arm64'].includes(architecture)) return false
+  if (retiredDefaultSystemImage(alias) || !['x86_64', 'aarch64', 'amd64', 'arm64'].includes(architecture)) return false
   const arch = ['aarch64', 'arm64'].includes(architecture) ? 'aarch64' : 'x86_64'
   try { const path = join(root(), imageKey(alias, arch, type) + '.json'), info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || info.size > 8192) return false
     const image = JSON.parse(await readFile(path, 'utf8')); validateReceipt(image, alias, arch, type); return true

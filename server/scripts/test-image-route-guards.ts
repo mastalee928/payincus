@@ -48,8 +48,8 @@ const catalog = { products: {
   arm: { aliases: 'alpine/3.24/tinycloud', arch: 'arm64', versions: { current: { items: { root: { ftype: 'root.tar.xz' } } } } }
 } }
 const parsed = parseOfficialImageCatalog(catalog)
-assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud', 'x86_64', 'container'), true)
-assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud/arm64', 'aarch64', 'container'), true)
+assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud', 'x86_64', 'container'), false)
+assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud/arm64', 'aarch64', 'container'), false)
 assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud/arm64', 'x86_64', 'container'), false)
 assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud', 'x86_64', 'vm'), false)
 assert.equal(officialImagePresent(parsed, 'images:debian/12/cloud', 'x86_64', 'vm'), true)
@@ -69,19 +69,30 @@ globalThis.fetch = (async (url: string | URL | Request) => {
 try {
   assert.equal(await officialImageAvailable('custom:debian/11', 'x86_64', 'container'), true)
   assert.equal(requests, 0)
-  const checks = await Promise.all(Array.from({ length: 8 }, () => officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container')))
+  for (const alias of ['images:debian/11/cloud', 'images:debian/11/cloud/arm64', 'images:ubuntu/25.10/cloud', 'images:ubuntu/25.10/cloud/arm64']) {
+    assert.equal(await officialImageAvailable(alias, 'x86_64', 'container'), false)
+  }
+  assert.equal(requests, 0, 'retired choices never need upstream lookup or cached-image fallback')
+  const checks = await Promise.all(Array.from({ length: 8 }, () => officialImageAvailable('images:ubuntu/25.04/cloud', 'x86_64', 'container')))
   assert.ok(checks.every(value => value === false)); assert.equal(requests, 1, 'concurrent lookups share one bounded fetch')
   const images = [
     { remoteAlias: 'images:debian/12/cloud', architecture: 'x86_64', instanceType: 'both' },
-    { remoteAlias: 'images:ubuntu/25.10/cloud', architecture: 'x86_64', instanceType: 'both' }
+    { remoteAlias: 'images:ubuntu/25.04/cloud', architecture: 'x86_64', instanceType: 'both' }
   ]
   assert.equal((await filterAvailableOfficialImages(images, 'container')).length, 1)
   fail = true; now += 16 * 60000
-  assert.equal(await officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container'), false)
-  assert.equal(await officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container'), false)
+  assert.equal(await officialImageAvailable('images:ubuntu/25.04/cloud', 'x86_64', 'container'), false)
+  assert.equal(await officialImageAvailable('images:ubuntu/25.04/cloud', 'x86_64', 'container'), false)
   assert.equal(requests, 2, 'failed upstream requests back off')
   now += 61 * 60000
-  assert.equal(await officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container'), null)
+  assert.equal(await officialImageAvailable('images:ubuntu/25.04/cloud', 'x86_64', 'container'), null)
   assert.equal((await filterAvailableOfficialImages(images)).length, 2, 'unknown upstream state must not erase inventory')
 } finally { globalThis.fetch = originalFetch; Date.now = originalNow }
+const removed = [{ remoteAlias: 'images:debian/11/cloud', architecture: 'x86_64', instanceType: 'both' },
+  { remoteAlias: 'images:ubuntu/25.10/cloud/arm64', architecture: 'aarch64', instanceType: 'both' }]
+assert.deepEqual(await filterAvailableOfficialImages(removed), [], 'retired entries stay unavailable during upstream outage')
+const defaultImages = await import('../src/config/system-images.js')
+assert.ok(!defaultImages.SYSTEM_IMAGES.some(image => /debian\/11|ubuntu\/25\.10/.test(image.remoteAlias)))
+const retirement = readFileSync(resolve(process.cwd(), 'prisma/migrations/20261114010000_retire_unavailable_system_images/migration.sql'), 'utf8')
+assert.ok(retirement.includes('DELETE FROM system_images') && !/DELETE FROM (?:instances|instance_tasks|instance_billing_records)/.test(retirement))
 console.log('official catalog: withdrawal, architecture/type, custom sources, concurrency, stale cache and outage passed')

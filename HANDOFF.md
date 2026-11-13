@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2026-11-14按owner撤除Debian11/Ubuntu25.10：正常管理员API已删除双架构四条10/48/26/60，主控对应6缓存/原包、本地11镜像文件清理。源码删专用下载/转换/首启/测试，默认目录及新迁移拒绝重新加回；通用持久库/mTLS保留。#36任务225真实dpkg超时中断仍PROCESSING，新增原身份/当前task/无在途/持久性核验后stop确认→FAILED→新同意重装收尾，双架构PG/mTLS回归完成（retired-images-reinstall-final-db.log）、7专项/types/build/image transport过；尚未新候选热更新。#37/CentOS9 owner确认正常，实际任务254/00:44:31完成与SSH运行。#40另一用户任务178仅DB完成，先前误称实测纠正；我方Alpine切换导致当前不同，已停ARM全矩阵，单独Debian11实测1项过但按owner现决定仍撤除。最新goal恢复全部修复后发行授权；当前资源规格和开通中IPv6两补充待下一步，见[撤除记录](docs/retired-system-images-2026-11-14.md)。
+
 - 2026-11-14主控候选热更新43成功：preview-9d4984e/source9d4984e6c9ca，备份/opt/incudal.bak.20261113162202；沿原sealed helper/worker，包sha/242迁移（无待迁移）/DB支付就绪/双前端API+WS/Agent清单/日志暴露检查全过。最终CI43456711297已31/31success、十预览43456762975success，双包独立签名和源码一致。主控/var/lib/incudal-images已创建并后台逐项保存，程序包无整库。ARM#40有另一条用户Debian11重装#178占用（后已COMPLETED），初轮矩阵409无重装；x86初轮一项短暂锁409、三项全流程通过后收尾。测试脚本原固定60s等锁过短，改观察前一任务结束、持久等待25m（不清保护）后分别新ARM25/x8623镜像矩阵r3已启动，尚未完成。正式发行仍暂停。
 
 - 9d4984e6最终本地全量220/220及后端build自然exit0；双架构八类原生16/16成功，Debian11真实首次交付/失败重装/新重装/平台停启/重启/原key密码磁盘保持和完整清理成功（CI43456711297 jobs131992648112/131992648301）。Agent43456711138和Alpine43456711218success；无tag预览43456762975十必需job全部success，实际双tar已核原签名/source/242迁移/修复/用户无改价入口/无图库。完整CI六综合分片尚收尾；主控仍preview-818cc09，本批未热更新，#40/test-arm-1只读核stopped。主控镜像目录尚无、空余130GB、默认目录86可获取目标约16.6GB，最新持久库策略仍继续。详见[持久库记录](docs/persistent-system-image-library-2026-11-13.md)。

@@ -26,6 +26,11 @@ globalThis.fetch = (async (input: unknown) => {
   throw Error('unexpected network target')
 }) as typeof fetch
 try {
+  for (const alias of ['images:debian/11/cloud', 'images:debian/11/cloud/arm64', 'images:ubuntu/25.10/cloud', 'images:ubuntu/questing/cloud/arm64']) {
+    await assert.rejects(cacheSystemImage(alias, 'x86_64', 'container'), /SYSTEM_IMAGE_RETIRED/)
+    assert.equal(await cachedSystemImagePresent(alias, 'x86_64', 'container'), false)
+  }
+  assert.equal(catalogReads, 0, 'retired images do not download or reuse old cache receipts')
   const first = await Promise.all(Array.from({ length: 4 }, () => cacheSystemImage('images:debian/12/cloud', 'x86_64', 'container')))
   assert.ok(first.every(image => image.fingerprint === parts.meta.combined_rootxz_sha256))
   assert.deepEqual([catalogReads, metadataReads, rootReads], [1, 1, 1], 'concurrent requests acquire immutable parts once')

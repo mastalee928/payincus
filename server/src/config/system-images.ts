@@ -107,14 +107,6 @@ export const SYSTEM_IMAGES: SystemImage[] = [
     },
     // Debian
     {
-        id: 'debian-11-cloud',
-        name: 'Debian bullseye amd64',
-        osType: 'Linux',
-        remoteAlias: 'debian/11/cloud',
-        architecture: 'x86_64',
-        icon: 'debian'
-    },
-    {
         id: 'debian-12-cloud',
         name: 'Debian bookworm amd64',
         osType: 'Linux',
@@ -245,14 +237,6 @@ export const SYSTEM_IMAGES: SystemImage[] = [
         name: 'Ubuntu plucky amd64',
         osType: 'Linux',
         remoteAlias: 'ubuntu/25.04/cloud',
-        architecture: 'x86_64',
-        icon: 'ubuntu'
-    },
-    {
-        id: 'ubuntu-25.10-cloud',
-        name: 'Ubuntu questing amd64',
-        osType: 'Linux',
-        remoteAlias: 'ubuntu/25.10/cloud',
         architecture: 'x86_64',
         icon: 'ubuntu'
     },

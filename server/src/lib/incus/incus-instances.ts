@@ -13,7 +13,7 @@ import { networkModeNeedsNatIpv4 } from '../network-modes.js'
 import { generateVmNicMacs } from '../vm-network-identifiers.js'
 import { resolveIncusSwapValue } from '../instance-swap.js'
 import { assertCustomerIsolation, assertCustomerProfiles, readCustomerIsolation, rejectCustomerPrivilege } from './customer-isolation.js'
-import { resolveOwnerSelectedImage } from '../../services/owner-selected-image-import.js'
+import { resolveCachedSystemImage } from '../../services/system-image-import.js'
 
 const INSTANCE_BUSY_WAIT_TIMEOUT_MS = 300000
 const INSTANCE_BUSY_POLL_INTERVAL_MS = 2000
@@ -291,7 +291,7 @@ export async function createInstance(client: IncusClient, config: unknown): Prom
   const typed = config as { type?: string; source?: { alias?: string; server?: string; protocol?: string } }
   const alias = typed.source?.server === 'https://images.linuxcontainers.org' && typed.source?.protocol === 'simplestreams'
     ? 'images:' + typed.source.alias : typed.source?.alias
-  const fingerprint = alias ? await resolveOwnerSelectedImage(client, alias, typed.type === 'virtual-machine' ? 'vm' : 'container') : null
+  const fingerprint = alias ? await resolveCachedSystemImage(client, alias, typed.type === 'virtual-machine' ? 'vm' : 'container') : null
   return client.request('POST', '/1.0/instances', fingerprint ? { ...config, source: { type: 'image', fingerprint } } : config)
 }
 
@@ -399,7 +399,7 @@ export async function rebuildInstance(
 ): Promise<unknown> {
   await readCustomerIsolation(client, name)
   assertCustomerIsolation({ config })
-  const fingerprint = imageSource.alias ? await resolveOwnerSelectedImage(client, imageSource.alias,
+  const fingerprint = imageSource.alias ? await resolveCachedSystemImage(client, imageSource.alias,
     (await getInstance(client, name)).type === 'virtual-machine' ? 'vm' : 'container') : null
   // 处理远程镜像源
   // 如果 alias 以 "images:" 开头，表示从远程 images.linuxcontainers.org 拉取
