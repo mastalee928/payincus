@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 62eae8fb Agent43477081610已双架构全部success（真实LXCFS服务/包hook含原模块、解包工具及漂移修复）。前19959af5 CI43476273057双架构14类原生全部过，但verification-resend分片132060786201旧fixture缺root设备失败；补真实root后本地同脚本验证自然exit0，未放宽新重装quota门槛。新来源62CI43477081639/预览43477200648运行；本地221已接近末段无失败，目标热更新仍待完整最终来源。
+
 - 后续19959af5 CI43476273057 AMD64Tiny原生job132060786091已success，含live LXCFS移除旧meminfo挂载→原UUID/PID修复→准确1024MiB→幂等及原SSH；ARM仍待。debb272b Agent43476394741服务测试失败日志确认Docker缺/lib/modules，OpenRC modprobe失败，非同类产品启动判断；夹具提供实际host模块目录并预加载fuse/autofs4后重新验。静默截断已新来源闭环部分，整个双架构/最终CI尚未通过，禁止热更新。
 
 - 3d2af63f原生CI43475690849 Alpine Tiny双架构jobs132058801629/132058801711失败：实际创建/SSH已过，新增LXCFS live-repair读取Incus完整config时JSON unexpectedly ended。Agent provisioning共享输出上限262144静默截断含CA/cloud-init的配置，属实际产品缺陷；改1MiB有界输出并显式overflow拒绝，新增不静默截断断言，保留原身份校验，待新来源双架构原生。此候选禁止热更新。Agent43475696569暂未失败，预览43475676386仍运行；本地221和双端build/PG/types/browser证据分别保留。

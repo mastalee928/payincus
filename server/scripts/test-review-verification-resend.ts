@@ -439,7 +439,8 @@ try {
       const legacyImageConfig = { 'image.os': 'Alpine', 'user.vendor-data': 'obsolete vendor data', 'volatile.cloud-init.instance-id': 'old-boot' }
       const originalUuid = randomUUID(), originalAttempt = randomUUID(), originalCreatedAt = new Date().toISOString()
       const originalRemote = () => ({ name: resourceInstances[0].incusId, type: 'container', created_at: originalCreatedAt,
-        config: { ...legacyImageConfig, 'volatile.uuid': originalUuid, 'user.payincus.provisioning-attempt': originalAttempt }, devices: {} })
+        config: { ...legacyImageConfig, 'volatile.uuid': originalUuid, 'user.payincus.provisioning-attempt': originalAttempt },
+        devices: {root:{type:'disk',path:'/',pool:'fixture',size:'1024MiB'}} })
       materialRemote = createHttpsServer({ cert: certificate, key: await readFile(keyPath), ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
         const reply = (status: number, metadata: unknown) => {
           response.writeHead(status, { 'content-type': 'application/json' })
