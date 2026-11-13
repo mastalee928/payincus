@@ -28,7 +28,7 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
   assert.equal((request.socket as any).authorized, true)
   reply.setHeader('Content-Type', 'application/json')
   const ok = (metadata: unknown) => reply.end(JSON.stringify({ type: 'sync', metadata }))
-  if (request.url === '/1.0') return ok({ environment: { server_architecture: arch } })
+  if (request.url === '/1.0') return ok({ environment: { kernel_architecture: arch } })
   if (request.method === 'POST' && request.url === '/1.0/images') {
     uploads++
     const hash = createHash('sha256'); let size = 0
@@ -64,6 +64,9 @@ try {
     assert.equal(uploads, previous, 'the registered cached image is reused')
   }
   assert.equal(uploads, 2, 'exactly one authenticated import for each architecture')
+  arch = 'unknown'
+  await assert.rejects(resolveOwnerSelectedImage(client, 'images:debian/11/cloud', 'container'), /ARCHITECTURE_MISMATCH/)
+  assert.equal(uploads, 2, 'unknown architecture cannot infer or import an x86 image')
   assert.ok(calls.every(call => !call.includes('/instances')), 'image import cannot mutate a customer')
   console.log('PASS bundled images: both real tar hashes, fixed source pins, architecture, mTLS binary import, concurrent deduplication and cached reuse without any fetch')
 } finally {

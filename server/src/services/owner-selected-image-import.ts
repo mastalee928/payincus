@@ -77,8 +77,8 @@ async function upload(client: IncusClient, archive: Prepared) {
 export async function resolveOwnerSelectedImage(client: IncusClient, alias: string, instanceType: 'container' | 'vm'): Promise<string | null> {
   if (!/^images:debian\/11\/cloud(?:\/(?:amd64|arm64|x86_64|aarch64))?$/.test(alias)) return null
   if (instanceType !== 'container') throw Error('OWNER_IMAGE_CONTAINER_REQUIRED')
-  const server = await client.request<{ environment?: { server_architecture?: string } }>('GET', '/1.0', null, 10000)
-  const selected = ownerSelectedContainerImage(alias, server.environment?.server_architecture || '')
+  const server = await client.request<{ environment?: { kernel_architecture?: string } }>('GET', '/1.0', null, 10000)
+  const selected = ownerSelectedContainerImage(alias, server.environment?.kernel_architecture || '')
   if (!selected) throw Error('OWNER_IMAGE_ARCHITECTURE_MISMATCH')
   const archive = await getArchive(selected)
   const key = `${client.baseUrl}:${archive.sha256}`

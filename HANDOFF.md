@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- b29c3edb Debian11双原生CI43437782319 jobs131927232898/131927232934在实例创建前报OWNER_IMAGE_ARCHITECTURE_MISMATCH：导入器/fixture误用不存在server_architecture，真实Incus6字段kernel_architecture。原包/ELF架构正确，修为受信真实字段，未知架构继续拒绝；不默认x86，不改变生产。此前禁fetch/mTLS导入通过不能代替真实Incus字段验收，待新来源原生继续。其余默认镜像内置已排队，正式不发。
+
 - Debian11内置候选本地全量219/219（logs/test-run-20261113-213644，16m19s）、最后types/build、三相关守卫、实际大文件mTLS禁fetch导入/缓存复用和92场景+6新同意重装已通过。待同来源CI16原生（新增Debian11×双架构）真实初始化/重装/停启/重启；生产未部署此候选。Owner另要求其余全部默认镜像也内置，先收尾本Debian11后实施，正式发行仍暂停。
 
 - Owner要求新Debian11 AMD64/ARM64两镜像替代旧失效官方源并安装包内置。原包hash/ELF/系统已核，缺cloud-init且有预置主机密钥/machine-id；源码补构建转换/两架构内置manifest、受信mTLS首次导入和缓存复用、运行无外网回退、原ID/alias及实例账务保持，重装镜像核验先于磁盘动作。固定本地两tar+禁fetch实际mTLS导入/缓存、types及三个守卫、92PG场景+6新同意重装通过，完整219仍运行，真实双架构初始化和候选包验收待。详见[内置镜像记录](docs/bundled-debian11-2026-11-13.md)。生产仍preview-818cc09，未部署此新增，正式发行暂停。
