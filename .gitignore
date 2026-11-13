@@ -165,3 +165,6 @@ namecrane_modules/
 
 !docs/instance-provisioning-five-reviews-2026-11-13.md
 !docs/release-v1.8.9-validation.md
+
+!docs/pool-ip-provisioning-race-2026-11-13.md
+!docs/release-v1.8.10-validation.md

@@ -260,7 +260,7 @@ const api = {
     verify: (id: string): Promise<import('@/types/checkout').CheckoutOrder> => http.post(`/checkout/${encodeURIComponent(id)}/verify`),
     list: (before?: string): Promise<{ orders: Array<{ id: string; status: string; totalCents: number; createdAt: string; expiresAt: string; display: import('@/types/checkout').CheckoutOrder['items'] }>; next: string | null }> => http.get('/checkout', { params: { before } }),
     refunds: (): Promise<{ refunds: Array<{ id: string; orderId: string; amountCents: number; reason: string; createdAt: string; order: { userId: number }; payment: { providerName: string; method: string }; receipt: { tradeNo: string; amountCents: number; currency: string } }> }> => http.get('/checkout-admin/refunds'),
-    completeRefund: (id: string, receipt: string) => http.post(`/checkout-admin/refunds/${encodeURIComponent(id)}/complete`, { receipt })
+    completeRefund: (id: string, receipt: string): Promise<{ success: true }> => http.post(`/checkout-admin/refunds/${encodeURIComponent(id)}/complete`, { receipt })
   },
   // 认证
   auth: {

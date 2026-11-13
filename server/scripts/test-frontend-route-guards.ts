@@ -626,6 +626,12 @@ assert.ok(
   'admin API client must retain admin endpoints separately from the customer API client'
 )
 assert.ok(
+  adminApiSource.includes("http.get('/checkout-admin/refunds')") &&
+    adminApiSource.includes('completeRefund: (id: string, receipt: string)') &&
+    adminApiSource.includes('/checkout-admin/refunds/${encodeURIComponent(id)}/complete'),
+  'admin entry must include both refund list and receipt completion methods used by its billing panel'
+)
+assert.ok(
   adminApiSource.includes('CreateInstanceResponse') &&
     adminApiSource.includes('create: (data: CreateInstanceRequest): Promise<CreateInstanceResponse>'),
   'admin API instance create must use the shared create response contract with nested instance details'

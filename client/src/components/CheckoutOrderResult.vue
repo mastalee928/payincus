@@ -62,7 +62,7 @@ const entries = computed(() => props.order.instances.map(instance => {
     instance, state, tone: stateTones[state],
     hasConnection: Boolean(instance.host && instance.sshPort),
     hasPassword: Boolean(instance.rootPassword && instance.status !== 'error'),
-    hasIpv6: Boolean(instance.publicIpv6Addresses?.length || ['pending', 'failed'].includes(instance.publicIpv6Status || ''))
+    hasIpv6: ['ready', 'creating', 'updating'].includes(state) && Boolean(instance.publicIpv6Addresses?.length || ['pending', 'failed'].includes(instance.publicIpv6Status || ''))
   }
 }))
 const readyCount = computed(() => entries.value.filter(entry => entry.state === 'ready').length)

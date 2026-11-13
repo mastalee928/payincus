@@ -41,6 +41,15 @@ jobs:
       - run: |
           pnpm --filter server exec prisma generate
           pnpm --filter server exec prisma migrate deploy
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: agent/go.mod
+      - name: Compile real host guard and tool receipt probe
+        run: |
+          trap 'rm -f agent/internal/guestguard/pool_delivery_native_linux_test.go' EXIT
+          cp scripts/fixtures/pool-delivery-guard/native_linux_test.go agent/internal/guestguard/pool_delivery_native_linux_test.go
+          (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-pool-guard-tests ./internal/guestguard)
       - name: Real AppArmor image unpack, generated initialization, password SSH and cleanup
         run: sudo env "PATH=$PATH" "DATABASE_URL=$DATABASE_URL" "JWT_SECRET=$JWT_SECRET" "INCUDAL_NATIVE_IMAGE=$INCUDAL_NATIVE_IMAGE" GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted bash scripts/smoke-provisioning-six-incus.sh
   onboarding-ip-integration:
@@ -617,6 +626,9 @@ jobs:
         run: |
           pnpm --filter server test:review-pool-result
           pnpm --filter server test:review-pool-result-ui
+      - name: Administrator refund panel uses its shipped API and production bundle
+        if: matrix.shard == 1
+        run: pnpm --filter server test:admin-checkout-refunds-browser
       - name: Pool cart preserves concurrent entries and current purchase choices
         if: matrix.shard == 2
         run: pnpm --filter server test:review-pool-cart-ui

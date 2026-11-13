@@ -365,18 +365,18 @@ jobs:
           pattern: incudal-*-linux-${{ matrix.arch }}
           path: upgrade-artifact
           merge-multiple: true
-      - name: 下载并校验原v1.8.8发行包
+      - name: 下载并校验原v1.8.9发行包
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v1.8.8 --repo "$GITHUB_REPOSITORY" --pattern 'incudal-v1.8.8-linux-${{ matrix.arch }}.tar.gz*' --dir old-artifact
-          (cd old-artifact && sha256sum --check 'incudal-v1.8.8-linux-${{ matrix.arch }}.tar.gz.sha256')
+          gh release download v1.8.9 --repo "$GITHUB_REPOSITORY" --pattern 'incudal-v1.8.9-linux-${{ matrix.arch }}.tar.gz*' --dir old-artifact
+          (cd old-artifact && sha256sum --check 'incudal-v1.8.9-linux-${{ matrix.arch }}.tar.gz.sha256')
       - name: 原worker升级至新包并核身份和校时
         run: |
           package=$(find "$PWD/upgrade-artifact" -maxdepth 1 -name '*.tar.gz' -type f)
           test "$(printf '%s\n' "$package" | wc -l)" = 1
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted INCUDAL_AGENT_RELEASE_TOKEN=${{ github.token }} \
-            bash scripts/smoke-legacy-online-upgrade.sh "$package" "$PWD/old-artifact/incudal-v1.8.8-linux-${{ matrix.arch }}.tar.gz" '${{ matrix.scenario }}'
+            bash scripts/smoke-legacy-online-upgrade.sh "$package" "$PWD/old-artifact/incudal-v1.8.9-linux-${{ matrix.arch }}.tar.gz" '${{ matrix.scenario }}'
 
   # ===== 首装与旧版升级验证成功后才发布 Release =====
   release:

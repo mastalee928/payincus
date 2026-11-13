@@ -16,14 +16,26 @@ function context() {
 }
 async function load() {
   const current = context()
-  try { const result = await api.checkout.refunds(); if (current()) { rows.value = result.refunds; error.value = '' } }
+  try {
+    const result = await api.checkout.refunds()
+    if (current()) {
+      if (!Array.isArray(result?.refunds)) throw Error(t('common.error'))
+      rows.value = result.refunds; error.value = ''
+    }
+  }
   catch (err) { if (current()) error.value = translateError(err) }
 }
 async function complete(id: string) {
   if (!props.active || busy.value || (receipts.value[id]?.trim().length ?? 0) < 6) return
   const current = context()
   busy.value = true; error.value = ''
-  try { await api.checkout.completeRefund(id, receipts.value[id].trim()); if (current()) { delete receipts.value[id]; await load() } }
+  try {
+    const result = await api.checkout.completeRefund(id, receipts.value[id].trim())
+    if (current()) {
+      if (result?.success !== true) throw Error(t('common.error'))
+      delete receipts.value[id]; await load()
+    }
+  }
   catch (err) { if (current()) error.value = translateError(err) }
   finally { if (current()) busy.value = false }
 }

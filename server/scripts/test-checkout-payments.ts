@@ -129,11 +129,20 @@ try {
  await prisma.instance.update({where:{id:instance.id},data:{status:'error'}})
  await processCheckoutQueue()
  assert.equal((await getCheckout(buyer.id,intent.requestId)).status,'refund_pending')
+ const pendingFailure = (await getCheckout(buyer.id,intent.requestId)).result!.instances.find(row=>row.id===instance.id)!
+ assert.equal(pendingFailure.refundPending,true,'external refund liability must remain pending before the payment receipt is recorded')
+ assert.equal(pendingFailure.refunded,false,'a negative refund bill must not claim external money was returned')
+ const adminRefundList=await app.inject({method:'GET',url:'/api/checkout-admin/refunds'})
+ assert.equal(adminRefundList.statusCode,200,adminRefundList.body)
+ assert.ok(adminRefundList.json().refunds.some((row:any)=>row.instanceId===instance.id),'pending delivery refund is visible to the administrator')
  for (const refund of await prisma.checkoutRefund.findMany({where:{orderId:intent.requestId}})) {
    const response=await app.inject({method:'POST',url:`/api/checkout-admin/refunds/${encodeURIComponent(refund.id)}/complete`,payload:{receipt:'fixture-bank-receipt'}})
    assert.equal(response.statusCode,200,response.body)
  }
  assert.equal((await getCheckout(buyer.id,intent.requestId)).status,'refunded')
+ const completedFailure = (await getCheckout(buyer.id,intent.requestId)).result!.instances.find(row=>row.id===instance.id)!
+ assert.equal(completedFailure.refundPending,false)
+ assert.equal(completedFailure.refunded,true,'only completed refund receipts permit the customer refunded label')
  await upsertPoolPrice(priceInput,owner.id)
  await host()
  const cancelled=input();await createCheckout(buyer.id,cancelled,session)
@@ -280,6 +289,20 @@ try {
  await assert.rejects(handleCheckoutCallback(cryptoProvider.id,signNotice({...notice,token:'wrong-address'}),{...meta,method:'POST'}),/网络/)
  await handleCheckoutCallback(cryptoProvider.id,signNotice(notice),{...meta,method:'POST'})
  assert.equal((await getCheckout(buyer.id,cryptoOrder.requestId)).status,'paid');assert.equal(await balance(),100)
+ await materializeCheckout(cryptoOrder.requestId)
+ const cryptoInstance=await prisma.instance.findFirstOrThrow({where:{purchaseBatchId:cryptoOrder.requestId}})
+ await compensateFailedInstancePurchase(cryptoInstance.id,buyer.id,cryptoInstance.hostId)
+ await prisma.instance.update({where:{id:cryptoInstance.id},data:{status:'error'}})
+ const cryptoPending=(await getCheckout(buyer.id,cryptoOrder.requestId)).result!.instances[0]
+ assert.equal(cryptoPending.refundPending,true,'USDT failure creates a pending original-payment refund')
+ assert.equal(cryptoPending.refunded,false,'USDT refund liability is not a confirmed transfer')
+ const cryptoRefund=await prisma.checkoutRefund.findFirstOrThrow({where:{instanceId:cryptoInstance.id}})
+ assert.equal(cryptoRefund.status,'pending')
+ assert.equal(await balance(),100,'USDT must not be converted into wallet balance on failed delivery')
+ const cryptoComplete=await app.inject({method:'POST',url:`/api/checkout-admin/refunds/${encodeURIComponent(cryptoRefund.id)}/complete`,payload:{receipt:'fixture-usdt-refund-transaction'}})
+ assert.equal(cryptoComplete.statusCode,200,cryptoComplete.body)
+ const cryptoDone=(await getCheckout(buyer.id,cryptoOrder.requestId)).result!.instances[0]
+ assert.equal(cryptoDone.refundPending,false);assert.equal(cryptoDone.refunded,true)
  await host();const lost=input();await createCheckout(buyer.id,lost,session)
  const lp=await prisma.checkoutPayment.create({data:{id:'P'+randomUUID().replaceAll('-',''),orderId:lost.requestId,providerId:cryptoProvider.id,providerType:'upaypro',providerName:'Fixture USDT',method:'USDT-TRC20',payableCents:1100,feeCents:0,configSnapshot:buildRechargeProviderConfigSnapshot('upaypro',upayConfig),details:{},status:'uncertain'}})
  await handleCheckoutCallback(cryptoProvider.id,signNotice({...notice,order_id:lp.id,trade_id:'fixture-lost-trade'}),{...meta,method:'POST'})

@@ -67,7 +67,7 @@ try {
   const cases=[
     {status:'creating',refunded:false,refundPending:false,host:null,sshPort:null,rootPassword:null},
     {status:'error',refunded:false,refundPending:true,host:null,sshPort:null,rootPassword:null},
-    {status:'error',refunded:true,refundPending:false,host:null,sshPort:null,rootPassword:null},
+    {status:'error',refunded:true,publicIpv6Status:'pending',refundPending:false,host:null,sshPort:null,rootPassword:null},
     {status:'running',refunded:false,refundPending:false,publicIpUpdating:true,host:null,sshPort:null,rootPassword:null},
     {status:'running',refunded:false,refundPending:false,host:'192.0.2.20',sshPort:22,rootPassword:'isolated-test-password'}
   ]
@@ -77,6 +77,9 @@ try {
     assert.equal(await page.eval(()=>!!document.querySelector('.order-address-value')),index===4)
     assert.equal(await page.eval(()=>!!document.querySelector('.order-password')),index===4)
     assert.equal(await page.eval(()=>!!document.querySelector('.order-copy-done')),false)
+    if(index===2) assert.equal(await page.eval(()=>document.body.innerText.includes('IPv6 正在配置')), false, 'refunded creation must not claim IPv6 is still being configured')
+    if(index===1) assert.equal(await page.eval(()=>document.body.innerText.includes('费用已按原支付方式退回')), false, 'pending external refund must never claim the payment was returned')
+    if(index===2) assert.equal(await page.eval(()=>document.body.innerText.includes('费用已按原支付方式退回')), true)
     if(index===4) assert.equal(await page.eval(()=>document.querySelector('.order-password input').type),'password')
   }
 
