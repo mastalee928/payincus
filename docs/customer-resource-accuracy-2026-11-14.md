@@ -1,5 +1,7 @@
 # 客户资源限额与开通中 IPv6 展示
 
+最终自动函数原生来源b372a9bf/43527445621六场景全部success：AMD/ARM正常、prepared原子替换后中断恢复、OpenRC失败后的持久回滚和再次修复。固定原进程exe内容hash/PID启动时间核验闭环，原客机UUID/PID/boot/marker保持，实际sysinfo=128MiB。完整同来源CI/包/双首装/六旧worker预览仍进行，本批尚未热更新；不能用原生128MiB测试宣称目标E2/ARM1C现场已sysinfo准确。
+
 自动Agent函数正常流程已于43526018569双架构原生通过：OpenRC重载及幂等、原客机UUID/PID/boot/marker保持、sysinfo精确128MiB。回滚复审随后补持久rolling-back阶段，避免旧binary已恢复但服务未起时reloading/NewHash阻断自动续接；六场景正常/准备后中断/启动失败回滚重试×双架构继续验证，尚未新候选热更新或发行。
 
 Agent自动函数真实原生43523276506在两架构第一步实例JSON解析失败，尚未替换daemon。命令执行器将stdout/stderr合并且没有明确本地socket，首次Incus提示/默认remote可干扰；修为固定--force-local、Incus单独有界stderr，错误只保留解析诊断而不输出客户配置。双架构vet/测试编译和host-tools已过，新的自动应用/重载/原客户保持仍须验证。此前手动原生成功不作为这次自动流程通过证据。

@@ -26,8 +26,7 @@ export async function incusCompatibilityPermit(agent:HostAgentRecord) {
  const saved=record(original.securityHardening),existing=record(saved.incusCompat) as Fence
  if(hostMaintenanceBlocked(original.securityHardening)&&existing.version!==1)return null
  const rows=await prisma.instance.findMany({where:{hostId:agent.hostId,status:{not:'deleted'}},orderBy:{id:'asc'}})
- const target=await getHostById(agent.hostId);if(!target)return null
- const client=await getIncusClient(target)
+ const connect=async()=>{const target=await getHostById(agent.hostId);if(!target)throw Error('COMPAT_HOST_MISSING');return getIncusClient(target,prisma,5000)}
  return withHostMaintenanceLane(agent.hostId,()=>prisma.$transaction(async tx=>{
   await tx.$executeRaw`SET LOCAL lock_timeout='2s'`
   for(const row of rows){if(!await tryAdvisoryTransactionLock(tx,INSTANCE_OPERATION_LOCK_NAMESPACE,row.id))return null;await tx.$queryRaw`SELECT id FROM instances WHERE id=${row.id} FOR UPDATE`}
@@ -36,6 +35,7 @@ export async function incusCompatibilityPermit(agent:HostAgentRecord) {
   if(recoveryHeld()||transferHostIdentity(host)!==transferHostIdentity(original))return null
   if(fence.version===1 && report.incusCompat==='verified' && report.compatRequest===fence.requestId &&
     fence.hostIdentity===transferHostIdentity(host) && fence.binaryHash===report.compatHash){
+    const client=await connect()
     // The owner's newer stop/expiry/delete intent can legitimately change the
     // old baseline while the daemon reload is finishing. Verify current
     // bindings instead of retaining an obsolete state fence forever.
@@ -51,6 +51,17 @@ export async function incusCompatibilityPermit(agent:HostAgentRecord) {
    await tx.checkoutReservation.count({where:{hostId:host.id}}))return null
   const occupants=await tx.instance.findMany({where:{hostId:host.id,status:{not:'deleted'}},orderBy:{id:'asc'}})
   if(occupants.length!==rows.length||occupants.some((i,n)=>i.id!==rows[n].id||i.incusId!==rows[n].incusId||i.userId!==rows[n].userId||!['running','stopped'].includes(i.status)))return null
+  if(fence.version===1&&report.incusCompat==='pending'&&report.compatRequest!==fence.requestId)return null
+  if(fence.version===1&&fence.phase==='prepared'&&report.incusCompat==='pending'&&report.compatRequest===fence.requestId&&fence.hostIdentity===transferHostIdentity(host)&&fence.binaryHash===report.compatHash){
+   // The daemon may be down after an interrupted reload. Waiting for its API
+   // before returning the original permit would deadlock Agent recovery. The
+   // authenticated Agent validates the saved daemon/guest journal locally;
+   // keep the durable host fence until its verified receipt and remote check.
+   const current=[]
+   for(const row of occupants){const previous=fence.instances.find(i=>i.id===row.id&&i.name===row.incusId),identity=await registeredGuestIdentity(tx,row,host),state=row.status==='running'?'Running':'Stopped';if(!previous||identity.uuid!==previous.uuid||!(state===previous.state||previous.state==='Running'&&state==='Stopped'))return null;current.push({...previous,state})}
+   return {requestId:fence.requestId,hostIdentity:fence.hostIdentity,guests:current.map(i=>({name:i.name,uuid:i.uuid,state:i.state})),expiresAt:new Date(Date.now()+240000).toISOString()}
+  }
+  const client=await connect()
   const instances=[]
   for(const row of occupants){const identity=await registeredGuestIdentity(tx,row,host);if(!identity.uuid)return null;const remote=await client.request<{config?:Record<string,string>;status?:string}>('GET',`/1.0/instances/${encodeURIComponent(row.incusId)}`,null,5000);if(remote.config?.['volatile.uuid']!==identity.uuid||remote.status!==(row.status==='running'?'Running':'Stopped'))return null;instances.push({id:row.id,name:row.incusId,uuid:identity.uuid,state:remote.status})}
   if(fence.version===1){

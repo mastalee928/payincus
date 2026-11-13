@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 六原生完成后控制面复审发现重载断点的API/许可互等：pending Agent必须拿原许可恢复daemon，但原主控先connect Incus。改仅已持久prepared+受信当前Agent/原host+匹配request/hash/原实例绑定的pending续接不依赖daemon API，首次准备及verified解除仍真实mTLS核验；不同request拒绝。新增PG/mTLS原许可/零远端读取/异请求拒绝及完整AMD/ARM重装换机账務回归已exit0，server types和host-tools过。最新产品来源待推CI/预览；六原生只改Agent范围仍保持，但主控新许可必须同来源验收。未热更新正式发行。
+
+- b372a9bf35a8a7405e380d9c17769e5514dfaa4e自动原生43527445621六场景全部success：AMD/ARM正常重载、prepared中断恢复、服务失败rolling-back续接/旧binary与guest恢复/再修复。六组原PID/UUID/boot/marker保留，sysinfo准确128MiB；真实Agent函数/OpenRC执行，非手动切换。最新完整CI43527445647、Agent43527445557、Alpine43527445547、兼容构建43527445562及无tag双构建/双首装/六旧worker预览43528070537尚待终态。主控最新确认preview-6093777/Agent1.0.10，本批尚未热更新正式发行；后续核最终原生回滚、包、目标E2/ARM1C实际sysinfo和全池自动跟进。
+
 - f2ee5796原生43527016512 AMD rollback-retry已success（旧服务恢复后实际待idle并自动重试完成）；prepared-resume两架构仍失败daemon changed。根因prepared原子恢复原文件后原daemon持有unlinked inode，/proc/PID/exe带(deleted)误拒。源码改核精确原路径（仅允许该deleted尾缀）+原PID启动时间前后+进程实际exe固定fd读取的旧hash，与当前安装内容一致才续接，不放宽异机/不同binary/PID复用。新验证仍待，未热更新正式发行。
 
 - 50b14fb8六组原生43526588595 ARM normal通过，rollback-retry已通过故障→持久rolling-back→旧binary/服务/guest恢复，最终立即重试遇实际operations暂未idle。测试补有界重复prepare，保留实际operations门槛且仅超时输出一次性目标诊断；不取消任务或跳过产品检查。双vet/测试编译已过，最终六场景/完整CI/预览/主控实际sysinfo仍待。

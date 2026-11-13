@@ -173,6 +173,11 @@ try {
       await assert.rejects(createInstanceTask({instanceId:instance.id,hostId:host.id,userId:owner.id,taskType:'start'}))
       const repeat=await incusCompatibilityPermit(rawAgent)
       assert.equal(repeat?.requestId,permit.requestId,'same fence is resumed')
+      const remoteReads=calls.length
+      const interrupted=await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'pending',compatHash:hash,compatRequest:permit.requestId}}})
+      assert.equal(interrupted?.requestId,permit.requestId,'interrupted local daemon receives its original recovery permit')
+      assert.equal(calls.length,remoteReads,'recovery permit does not wait for the daemon that Agent must recover')
+      assert.equal(await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'pending',compatHash:hash,compatRequest:randomUUID()}}}),null,'another reload request cannot resume this fence')
       await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'verified',compatHash:hash,compatRequest:permit.requestId}}})
       assert.equal(hostMaintenanceBlocked((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).securityHardening),false)
       await prisma.hostAgent.delete({where:{id:rawAgent.id}})
