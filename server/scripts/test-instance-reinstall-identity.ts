@@ -173,6 +173,16 @@ try {
       const writes = calls.filter(call => call.startsWith('PATCH ')).length
       assert.equal(await reconcilePoolInstanceResources(instance.id), true)
       assert.equal(calls.filter(call => call.startsWith('PATCH ')).length, writes)
+      const oldSpecs=instance.snapshottedSpecs
+      await prisma.instance.update({where:{id:instance.id},data:{snapshottedSpecs:{managedCleanup:{uuid,attempt,endpointHash:createHash('sha256').update(host.url).digest('hex')}}}})
+      guest.config['limits.memory']=`${instance.memory}MB`;guest.devices.root.size=`${instance.disk}MB`
+      assert.equal(await reconcilePoolInstanceResources(instance.id),true,'early UUID and enrolled endpoint proof without creation time is sufficient for exact quota repair')
+      assert.equal(guest.config['limits.memory'],`${instance.memory}MiB`)
+      guest.config['limits.memory']=`${instance.memory}MB`;guest.devices.root.size=`${instance.disk}MB`
+      await prisma.instance.update({where:{id:instance.id},data:{snapshottedSpecs:{managedCleanup:{uuid,endpointHash:'wrong-endpoint'}}}})
+      assert.equal(await reconcilePoolInstanceResources(instance.id),false,'missing creation time cannot accept another endpoint')
+      await prisma.instance.update({where:{id:instance.id},data:{snapshottedSpecs:oldSpecs as any}})
+      guest.config['limits.memory']=`${instance.memory}MiB`;guest.devices.root.size=`${instance.disk}MiB`
       await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedIpv4: false } })
       await prisma.host.update({ where: { id: host.id }, data: { singleTenant: savedHost.singleTenant } })
     }

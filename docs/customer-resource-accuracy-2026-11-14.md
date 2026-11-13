@@ -1,5 +1,7 @@
 # 客户资源限额与开通中 IPv6 展示
 
+后续同来源bebeb93f的双实际tar、243迁移、原签名及全部旧升级/首装预览43495815626通过，Agent43495823040 success且无正式Release。正常主控manifest五分钟缓存更新后自动升级34/34到候选1.0.10，所有资源工具回执ready、宿主online且未新增poolFaulted。八运行池实例/proc+cgroup+只读视图7项正确；历史#27持久managedCleanup有原UUID和受信endpointHash但没有createdAt，旧后台修正误跳过。只为精确旧配额修复接受原UUID+原endpoint持久证据，仍核受信宿主、最新绑定/任务、ETag与原UUID，不以同名替代；双架构PG/mTLS新增缺时间正确修复/错误endpoint拒绝/幂等与账務保持通过，server types/build完成。AMD/ARM各24可选镜像矩阵20:06UTC启动，已开始真实重装/停启/重启/SSH/IPv6/内存视图逐项验收，执行期间不升级backend。
+
 2026-11-14 03:19最新目标实证：热更新任务44成功，主控运行preview-3773087（37730870e006）、243迁移，原worker/签名/DB支付/双前端检查通过。34台宿主自然升级到候选Agent1.0.9，全部online/poolFaulted=false；E2/ARM1C后台MiB限额及Btrfs30GiB qgroup已经生效，88份持久镜像收据、136文件18.66GB更新期间全部保留、无新下载。旧#36任务225自然FAILED且远端Stopped，允许正常重新选镜像。
 
 现存客机资源挂载发现目标环境缺口：Alpine6.18内核下直接跨命名空间bind返回EINVAL（两架构同样），即使原身份、procfs、工具与LXCFS服务正常；Ubuntu原生CI的成功不能代替此现场旧实例路径。已在仅授权测试#37/#40以原UUID/PID核验复现并验证open_tree/mount_setattr/move_mount、固定原proc目录/namespace/自身二进制fd方案，无客户重启，内存读数实际786432kB/4194304kB。源码候选Agent1.0.10补此路径，只读/noexec/nosuid/nodev、固定资源文件白名单与坏helper调用拒绝；全自动升级和同来源双架构CI仍待。旧运行客机sysinfo设置下次正常启动生效，不强制重启其它客户。

@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2026-11-14资源detached mount修复bebeb93f已推，Agent43495823040全部success/公开Release skipped；完整CI43495823271的14原生全部success、综合分片尚收尾；预览43495815626双构建/双首装/六旧worker升级全部success。两实际tar独立原签名/完整source/243迁移/无图库/用户价格边界通过。候选Agent1.0.10同来源artifact经主控正常manifest自动升级34/34，所有宿主online/provisioning ready/poolFaulted=false，无客户重启；八运行池实例资源回读7正确，历史#27缺createdAt但持久UUID+原endpoint匹配仍旧MB。源码仅此精确配额兼容补修，双架构PG/mTLS重装回归、types/build完成（resource-legacy-proof-db.log）；本批新候选待。剩余镜像矩阵已启动（各24项），不在任务期间升级主控，最终目标与正式发行仍待。
+
 - 2026-11-14主控候选热更新44最终success（19:13:36 UTC），preview-3773087/source37730870e006，备份/opt/incudal.bak.20261113191149；243迁移、原worker/签名/DB支付/唯一backend及双前端检查通过。34宿主自动Agent1.0.9均online无新poolFaulted；旧#36/225自然FAILED/Stopped，E2/ARM1C真实MiB/cgroup和30GiB qgroup已生效，88份镜像持久收据更新后原样保留。旧客机LXCFS补挂载在两Alpine目标返回EINVAL，静态与Ubuntu原生绿不能代表现场；已授权测试#37/#40核原UUID/PID后以固定fd的detached只读mount方案实证内存768MiB/4096MiB且无重启，源码Agent1.0.10补此缺口并加强helper/namespace固定句柄。新来源CI/自动升级、剩余全镜像及正式发行仍待，详见资源记录。
 
 - 资源进一步复审补sysinfo路径：LXCFS只修/proc，外部工具可用sysinfo看到宿主内存；新容器及重装设Incus原生security.syscalls.intercept.sysinfo，旧池原身份后台更新并回读（无liveupdate，后续正常启动生效，不擅自重启客户）。新增实际客机Go sysinfo总RAM=1024MiB原生断言，类型/资源与隔离守卫、Linux双编译过，最终PG/build与新CI仍待；不声称旧在用客户sysinfo已即时修复。

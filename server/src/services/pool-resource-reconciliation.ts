@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma.js'
+import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { getHostById } from '../db/hosts.js'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
@@ -32,10 +33,19 @@ export async function reconcilePoolInstanceResources(instanceId: number): Promis
       await tx.backupUploadTask.count({where:{instanceId:row.id,status:{in:['PENDING','PROCESSING']}}})||
       await tx.instanceTransfer.count({where:{instanceId:row.id,status:{in:['pending','processing']}}}))return false
     const original=await registeredGuestIdentity(tx,current,currentHost)
-    if(!original.uuid||!original.createdAt)return false
+    if(!original.uuid)return false
+    const specs=current.snapshottedSpecs && typeof current.snapshottedSpecs==='object' && !Array.isArray(current.snapshottedSpecs)?current.snapshottedSpecs as Record<string,unknown>:{}
+    const cleanup=specs.managedCleanup && typeof specs.managedCleanup==='object' && !Array.isArray(specs.managedCleanup)?specs.managedCleanup as Record<string,unknown>:{}
+    // Early paid pool deliveries saved the UUID and trusted endpoint but not
+    // Incus creation time. That durable proof still identifies the same guest
+    // for an exact legacy quota correction; today's same-name alone cannot.
+    const legacyProof=!original.createdAt && cleanup.uuid===original.uuid &&
+      cleanup.endpointHash===createHash('sha256').update(currentHost.url).digest('hex')
+    if(!original.createdAt&&!legacyProof)return false
     let etag:string|undefined
     const remote=await client.request<{type?:string;config?:Record<string,string>;devices?:Record<string,Record<string,string>>;created_at?:string}>('GET',`/1.0/instances/${encodeURIComponent(row.incusId)}`,null,5000,undefined,{onEtag:value=>{etag=value}})
-    if(!etag||remote.type!=='container'||remote.config?.['volatile.uuid']!==original.uuid||!sameGuestCreationTime(remote.created_at,original.createdAt))return false
+    if(!etag||remote.type!=='container'||remote.config?.['volatile.uuid']!==original.uuid||
+      (original.createdAt&&!sameGuestCreationTime(remote.created_at,original.createdAt)))return false
     const roots=Object.entries(remote.devices||{}).filter(([,d])=>d.type==='disk'&&d.path==='/')
     if(roots.length!==1)return false
     const config:Record<string,string>={},devices:Record<string,Record<string,string>>={}
