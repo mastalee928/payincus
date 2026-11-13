@@ -26,7 +26,7 @@ try {
   const catalog = { regions: [{ id: 10, name: '美国 · 圣何塞', countryCode: 'us', products: [product] }], maxInstances: 100 }
   const item = { poolPriceId: 20, quantity: 1, namePrefix: 'my-server', image: 'debian/12', customInitCommandIds: [], snapshot: { regionId: 10, regionName: '美国 · 圣何塞', countryCode: 'us', resourcePreset: 'E2', diskGiB: 30, cpu: 200, memoryMiB: 768, monthlyPrice: 1000, setupFee: 200, imageLabel: 'Debian 12' } }
   const respond = (index, data, failure = false) => run(({index,data,failure}) => { const r=window.checkoutHarness.requests[index]; if(!r||r.done)throw Error('Invalid request '+index);r.done=true;failure?r.reject(data):r.resolve(data) }, {index,data,failure})
-  const pending = kind => page.eval(kind => window.checkoutHarness.requests.findLastIndex(r=>r.kind===kind&&!r.done),kind)
+  const pending = kind => page.eval(kind => window.checkoutHarness?.requests.findLastIndex(r=>r.kind===kind&&!r.done) ?? -1,kind)
   const accept = async (kind, data) => {
     const until = Date.now() + 8000
     let index
@@ -65,11 +65,11 @@ try {
   assert.equal(await page.eval(()=>!!document.querySelector('.order-address-value .order-copy-done')),false)
   console.log('PASS result clipboard current success, reversed completions, route/account/session/storage/unmount isolation')
   const cases=[
-    {status:'creating',refunded:false,refundPending:false,host:null,sshPort:null,rootPassword:null},
+    {status:'creating',refunded:false,refundPending:false,publicIpv6Status:'pending',publicIpv6Addresses:['2001:db8::10'],host:null,sshPort:null,rootPassword:null},
     {status:'error',refunded:false,refundPending:true,host:null,sshPort:null,rootPassword:null},
     {status:'error',refunded:true,publicIpv6Status:'pending',refundPending:false,host:null,sshPort:null,rootPassword:null},
-    {status:'running',refunded:false,refundPending:false,publicIpUpdating:true,host:null,sshPort:null,rootPassword:null},
-    {status:'running',refunded:false,refundPending:false,host:'192.0.2.20',sshPort:22,rootPassword:'isolated-test-password'}
+    {status:'running',refunded:false,refundPending:false,publicIpUpdating:true,publicIpv6Status:'pending',host:null,sshPort:null,rootPassword:null},
+    {status:'running',refunded:false,refundPending:false,publicIpv6Status:'pending',host:'192.0.2.20',sshPort:22,rootPassword:'isolated-test-password'}
   ]
   for(let index=0;index<cases.length;index++) {
     await fresh();const id='state-'+index;await run(id=>window.checkoutHarness.router.push('/checkout?order='+id),id)
@@ -77,6 +77,7 @@ try {
     assert.equal(await page.eval(()=>!!document.querySelector('.order-address-value')),index===4)
     assert.equal(await page.eval(()=>!!document.querySelector('.order-password')),index===4)
     assert.equal(await page.eval(()=>!!document.querySelector('.order-copy-done')),false)
+    assert.equal(await page.eval(()=>!!document.querySelector('.order-ipv6')),index===4, 'IPv6 status appears only after successful delivery')
     if(index===2) assert.equal(await page.eval(()=>document.body.innerText.includes('IPv6 正在配置')), false, 'refunded creation must not claim IPv6 is still being configured')
     if(index===1) assert.equal(await page.eval(()=>document.body.innerText.includes('费用已按原支付方式退回')), false, 'pending external refund must never claim the payment was returned')
     if(index===2) assert.equal(await page.eval(()=>document.body.innerText.includes('费用已按原支付方式退回')), true)

@@ -13,8 +13,8 @@ export interface LiveRecoveryGuest {
 export function assertRecoveryGuestResources(expected:{cpu:number;memory:number;disk:number;instanceType?:string},live:LiveRecoveryGuest) {
   const config=live.expanded_config || live.config || {}
   const roots=Object.values(live.expanded_devices || live.devices || {}).filter(device=>device.type==='disk' && device.path==='/')
-  // The production generator writes decimal MB; accept equivalent byte/unit
-  // spellings, without treating a missing or unlimited value as evidence.
+  // Current resource units are MiB; keep exact legacy decimal-MB pairs valid
+  // for existing backups, without accepting mixed, missing or unlimited limits.
   const bytes=(value:string|undefined) => {
     const match=/^(\d+)(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)?$/.exec(value || '')
     if(!match)return -1n
@@ -26,8 +26,7 @@ export function assertRecoveryGuestResources(expected:{cpu:number;memory:number;
     ['container','virtual-machine'].includes(live.type || '') &&
     (!expected.instanceType || live.type===(expected.instanceType==='vm'?'virtual-machine':expected.instanceType)) &&
     config['limits.cpu']===String(allowanceToCores(expected.cpu)) && config['limits.cpu.allowance']===`${expected.cpu}%` &&
-    bytes(config['limits.memory'])===BigInt(expected.memory)*1000000n && roots.length===1 &&
-    bytes(roots[0].size)===BigInt(expected.disk)*1000000n,'OSS_REVIEW_RESOURCE_MISMATCH',409)
+    roots.length===1 && [1000000n,1048576n].some(unit => bytes(config['limits.memory'])===BigInt(expected.memory)*unit && bytes(roots[0].size)===BigInt(expected.disk)*unit),'OSS_REVIEW_RESOURCE_MISMATCH',409)
 }
 export function recoveryGuestStateMatches(saved: string, current: string, snapshotRestore = false) {
   if(snapshotRestore && ['running','stopped'].includes(saved))return ['Running','Stopped'].includes(current)

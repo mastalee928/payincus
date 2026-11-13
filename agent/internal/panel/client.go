@@ -14,6 +14,7 @@ import (
 	"incudal-agent/internal/config"
 	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/protocol"
+	"incudal-agent/internal/provisioning"
 )
 
 const heartbeatPath = "/api/agent/heartbeat"
@@ -26,14 +27,15 @@ type Client struct {
 }
 
 type HeartbeatResult struct {
-	AbusePolicy  *abuse.Instruction
-	PortProtocol *ingress.Instruction
-	StatusCode   int
-	Body         string
-	OK           bool
-	Upgrade      *UpgradeInstruction
-	LatencyMs    int64
-	PoolHostBBR  *bool
+	AbusePolicy    *abuse.Instruction
+	PortProtocol   *ingress.Instruction
+	StatusCode     int
+	Body           string
+	OK             bool
+	Upgrade        *UpgradeInstruction
+	LatencyMs      int64
+	PoolHostBBR    *bool
+	ResourceGuests []provisioning.Guest
 }
 
 type UpgradeInstruction struct {
@@ -46,10 +48,11 @@ type UpgradeInstruction struct {
 }
 
 type heartbeatResponse struct {
-	AbusePolicy  *abuse.Instruction   `json:"abusePolicy"`
-	PortProtocol *ingress.Instruction `json:"portProtocol"`
-	Upgrade      *UpgradeInstruction  `json:"upgrade"`
-	PoolHostBBR  *bool                `json:"poolHostBbr"`
+	AbusePolicy    *abuse.Instruction   `json:"abusePolicy"`
+	PortProtocol   *ingress.Instruction `json:"portProtocol"`
+	Upgrade        *UpgradeInstruction  `json:"upgrade"`
+	PoolHostBBR    *bool                `json:"poolHostBbr"`
+	ResourceGuests []provisioning.Guest `json:"resourceGuests"`
 }
 
 func New(cfg config.Config) *Client {
@@ -117,6 +120,7 @@ func (client *Client) Heartbeat(ctx context.Context, payload map[string]any) (He
 		result.PortProtocol = parsedResponse.PortProtocol
 		result.AbusePolicy = parsedResponse.AbusePolicy
 		result.PoolHostBBR = parsedResponse.PoolHostBBR
+		result.ResourceGuests = parsedResponse.ResourceGuests
 	}
 
 	var parsed map[string]any

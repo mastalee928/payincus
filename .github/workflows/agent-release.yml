@@ -197,6 +197,9 @@ jobs:
           for image in alpine:3.22 alpine:3.23 alpine:3.24 debian:trixie ubuntu:24.04; do
             docker run --rm -v /tmp/incudal-provisioning-tests:/test:ro -e INCUDAL_PROVISIONING_NATIVE_TEST=disposable "$image" /test -test.run 'TestNativeRepairAndDrift|TestRepairPlanProtectsExistingPackages' -test.v
           done
+      - name: Native LXCFS service and container resource hooks
+        run: |
+          docker run --rm --privileged -v /tmp/incudal-provisioning-tests:/test:ro -e INCUDAL_PROVISIONING_NATIVE_TEST=disposable -e INCUDAL_PROVISIONING_VISIBILITY_TEST=1 alpine:3.24 sh -ec 'apk add --no-cache openrc; mkdir -p /run/openrc; touch /run/openrc/softlevel; /test -test.run TestNativeRepairAndDrift -test.v'
       - name: Native pool host BBR, customer preservation and automatic repair
         run: |
           (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-bbr-tests ./internal/performance)

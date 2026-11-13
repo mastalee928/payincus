@@ -65,6 +65,7 @@ import { calculateInstanceTrafficStatus } from '../services/traffic-utils.js'
 import { beginInstanceReinstall, reconcileInterruptedReinstalls } from '../services/instance-reinstall-identity.js'
 import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 import { retiredDefaultSystemImage } from '../lib/retired-system-images.js'
+import { incusResourceSize } from '../lib/resource-size.js'
 import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from '../lib/managed-cleanup-identity.js'
 import { readRegisteredGuest, readCreatedGuest, guardCopyMoveClient } from '../lib/guest-delivery-identity.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
@@ -1189,6 +1190,8 @@ async function executeRebuildTask(
   // 所以必须先更新 config，让 rebuild 后的新系统能读取到正确的 cloud-init 配置
   // VM 关闭 UEFI 安全启动（允许用户 DD 系统等操作）
   const rebuildConfig: Record<string, string> = { ...configPayload }
+  const recordedResources = await prisma.instance.findUniqueOrThrow({ where: { id: task.instanceId }, select: { memory: true, disk: true } })
+  rebuildConfig['limits.memory'] = incusResourceSize(recordedResources.memory)
 
   // 关键修复：清除旧的云初始化缓存键和残留系统属性（防止 Alpine <-> Debian 等跨发行版重装时 vendor-data 不兼容导致 cloud-init 崩溃）
   // Clearing the previous OS is mandatory even when optional image metadata is unavailable.
@@ -1244,6 +1247,10 @@ async function executeRebuildTask(
   }
 
   console.log(`[Rebuild] 更新实例 ${instance.incus_id} 的 cloud-init 配置...`)
+  const currentRootDevices = (incusInstance as unknown as { devices?: Record<string, Record<string, string>> }).devices || {}
+  const root = Object.entries(currentRootDevices).find(([, device]) => device.type === 'disk' && device.path === '/')
+  if (!root) throw Error('REBUILD_ROOT_DEVICE_UNAVAILABLE')
+  rebuildDevices = { ...(rebuildDevices || currentRootDevices), [root[0]]: { ...root[1], size: incusResourceSize(recordedResources.disk) } }
   const rebuildUpdates: { config: Record<string, string>; devices?: Record<string, Record<string, string>> } = {
     config: rebuildConfig
   }

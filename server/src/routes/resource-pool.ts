@@ -1,3 +1,4 @@
+import { incusResourceSize } from '../lib/resource-size.js'
 /**
  * 资源池路由
  */
@@ -133,7 +134,7 @@ async function reconcileResourcePoolApplies(fastify: FastifyInstance): Promise<v
       const canReconcileStoppedOnlyResources = host.instance_type !== 'vm' || instance.status === 'stopped'
       if (canReconcileStoppedOnlyResources && candidate.resourceTypes.includes('r')) {
         reconciledTypes.add('r')
-        if (incusInstance.config?.['limits.memory'] !== `${instance.memory}MB`) {
+        if (incusInstance.config?.['limits.memory'] !== incusResourceSize(instance.memory)) {
           resources.memory = instance.memory
         }
       }
@@ -144,7 +145,7 @@ async function reconcileResourcePoolApplies(fastify: FastifyInstance): Promise<v
         : undefined
       if (canReconcileStoppedOnlyResources && candidate.resourceTypes.includes('d')) {
         reconciledTypes.add('d')
-        if (incusDiskSize !== `${instance.disk}MB`) {
+        if (incusDiskSize !== incusResourceSize(instance.disk)) {
           resources.disk = instance.disk
         }
       }

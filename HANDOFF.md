@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2026-11-14资源补充已取证：E2/ARM1C DB原规格正确，Incus768MB/4096MB/root30720MB单位错配；cgroup实值768000000/4096000000，宿主49/53无LXCFS，/proc宿主内存及df34GiB池可见，btrfs qgroup实际28.61GiB。源码改MiB及旧原身份/ETag定向后台修正，Agent候选v1.0.9补LXCFS新旧宿主/原UUID资源只读挂载。开通中IPv6只ready渲染，原成功展示保持，真实browser/route/i18n过；MiB/恢复/参数化双架构PGmTLS重装与旧单位修正过。最终前后端build收尾、Linux编译过但完整原生服务/挂载及目标实测仍待；新docs明确缺口。WindowsGo原Statfs平台编译失败非此产品断言；新原生CI须核。详见[资源记录](docs/customer-resource-accuracy-2026-11-14.md)。镜像撤除28f8179aCI43469531943最终29/29success，本次#36收尾尚未热更新，先前9d候选主控保持。
+
 - 2026-11-14按owner撤除Debian11/Ubuntu25.10：正常管理员API已删除双架构四条10/48/26/60，主控对应6缓存/原包、本地11镜像文件清理。源码删专用下载/转换/首启/测试，默认目录及新迁移拒绝重新加回；通用持久库/mTLS保留。#36任务225真实dpkg超时中断仍PROCESSING，新增原身份/当前task/无在途/持久性核验后stop确认→FAILED→新同意重装收尾，双架构PG/mTLS回归完成（retired-images-reinstall-final-db.log）、7专项/types/build/image transport过；尚未新候选热更新。#37/CentOS9 owner确认正常，实际任务254/00:44:31完成与SSH运行。#40另一用户任务178仅DB完成，先前误称实测纠正；我方Alpine切换导致当前不同，已停ARM全矩阵，单独Debian11实测1项过但按owner现决定仍撤除。最新goal恢复全部修复后发行授权；当前资源规格和开通中IPv6两补充待下一步，见[撤除记录](docs/retired-system-images-2026-11-14.md)。
 
 - 2026-11-14主控候选热更新43成功：preview-9d4984e/source9d4984e6c9ca，备份/opt/incudal.bak.20261113162202；沿原sealed helper/worker，包sha/242迁移（无待迁移）/DB支付就绪/双前端API+WS/Agent清单/日志暴露检查全过。最终CI43456711297已31/31success、十预览43456762975success，双包独立签名和源码一致。主控/var/lib/incudal-images已创建并后台逐项保存，程序包无整库。ARM#40有另一条用户Debian11重装#178占用（后已COMPLETED），初轮矩阵409无重装；x86初轮一项短暂锁409、三项全流程通过后收尾。测试脚本原固定60s等锁过短，改观察前一任务结束、持久等待25m（不清保护）后分别新ARM25/x8623镜像矩阵r3已启动，尚未完成。正式发行仍暂停。

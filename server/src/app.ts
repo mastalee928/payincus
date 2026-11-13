@@ -16,6 +16,7 @@ import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-pub
 import { startHostPublicIpv6Sync, stopHostPublicIpv6Sync } from './services/host-public-ipv6-sync.js'
 import { startHostOfflineAlertWorker, stopHostOfflineAlertWorker } from './workers/hostOfflineAlertWorker.js'
 import { startSystemImageCacheWorker, stopSystemImageCacheWorker } from './workers/systemImageCacheWorker.js'
+import { startPoolResourceReconciliation, stopPoolResourceReconciliation } from './services/pool-resource-reconciliation.js'
 // 确保环境变量被加载（必须在最前面）
 import './config/env.js'
 import adminAliyunOssRoutes from './routes/admin-aliyun-oss.js'
@@ -570,6 +571,7 @@ fastify.addHook('onClose', stopHostRepairWorker)
 fastify.addHook('onClose', stopSecurityHardeningWorker)
 fastify.addHook('onClose', async () => { stopHostOfflineAlertWorker() })
 fastify.addHook('onClose', stopSystemImageCacheWorker)
+fastify.addHook('onClose', stopPoolResourceReconciliation)
 fastify.addHook('onClose', async () => { await stopHostPublicIpSync() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpv6Sync() })
 fastify.addHook('onClose', async () => { await closeCaddyClients() })
@@ -863,6 +865,7 @@ const start = async (): Promise<void> => {
     startSecurityHardeningWorker()
     startHostOfflineAlertWorker()
     startSystemImageCacheWorker()
+    startPoolResourceReconciliation()
     startHostPublicIpSync()
     startHostPublicIpv6Sync()
     console.log('⚙️ 实例操作任务调度器已启动')

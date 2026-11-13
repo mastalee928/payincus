@@ -20,6 +20,7 @@ const { reconcileInterruptedReinstalls, reconcileExpiredRebuild } = await import
 const { assertRebuildBootReady } = await import('../src/lib/instance-rebuild-state.js')
 const { requestInstanceDeletion } = await import('../src/services/instance-deletion.js')
 const { encryptSensitiveData } = await import('../src/lib/security.js')
+const { reconcilePoolInstanceResources } = await import('../src/services/pool-resource-reconciliation.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const tag = 'reinstall-' + randomUUID().slice(0, 8), root = await mkdtemp(join(tmpdir(), tag))
 const keyPath = join(root, 'key.pem'), certPath = join(root, 'cert.pem')
@@ -88,7 +89,9 @@ const remote = createServer({ key: await readFile(keyPath), cert, ca: cert, requ
       if (mode === 'cleanup-refused' && name !== originalName) return fail(500, 'fixture cleanup refused')
       guests.delete(name); return ok()
     }
+    if (method === 'PATCH') { guest.config = { ...guest.config, ...body.config }; guest.devices = { ...guest.devices, ...body.devices }; return ok() }
     if (method === 'PUT') { guests.set(name, { ...guest, ...body }); return ok() }
+    res.setHeader('ETag', '"fixture-resource-etag"')
     return ok(guest)
   } catch (error) { fail(500, error instanceof Error ? error.message : 'fixture failure') }
 })
@@ -134,7 +137,7 @@ try {
     const uuid = randomUUID(), attempt = randomUUID(), createdAt = new Date().toISOString()
     guests.set(originalName, { name: originalName, type: scenario === 'wrong-type' ? 'virtual-machine' : 'container',
       config: { 'volatile.uuid': scenario === 'wrong-uuid' ? randomUUID() : uuid, 'user.payincus.provisioning-attempt': attempt, 'security.privileged': 'false' },
-      devices: {}, profiles: [], status: 'Stopped', created_at: createdAt })
+      devices: {root:{type:'disk',path:'/',pool:'fixture',size:'1024MB'}}, profiles: [], status: 'Stopped', created_at: createdAt })
     if (scenario === 'running-source') guests.get(originalName).status = 'Running'
     if (vmScenario) {
       guests.get(originalName).type = 'virtual-machine'
@@ -156,6 +159,23 @@ try {
       snapshottedSpecs: scenario === 'unknown-original' ? {} : { retained: 'billing-spec',
         ...(scenario === 'legacy-marker' ? {} : { managedCleanup: { uuid, attempt, endpointHash: createHash('sha256').update(host.url).digest('hex') } }), recoveryIdentity: { uuid, createdAt } } } })
     ids.push(instance.id)
+    if (taskType === 'rebuild' && scenario === 'success') {
+      const savedHost = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
+      await prisma.host.update({ where: { id: host.id }, data: { singleTenant: true } })
+      await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedIpv4: true } })
+      const guest = guests.get(originalName)
+      guest.config['limits.memory'] = `${instance.memory}MB`
+      guest.devices.root = { type: 'disk', path: '/', pool: 'fixture', size: `${instance.disk}MB` }
+      assert.equal(await reconcilePoolInstanceResources(instance.id), true)
+      assert.equal(guest.config['limits.memory'], `${instance.memory}MiB`)
+      assert.equal(guest.devices.root.size, `${instance.disk}MiB`)
+      assert.equal(guest.status, 'Stopped')
+      const writes = calls.filter(call => call.startsWith('PATCH ')).length
+      assert.equal(await reconcilePoolInstanceResources(instance.id), true)
+      assert.equal(calls.filter(call => call.startsWith('PATCH ')).length, writes)
+      await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedIpv4: false } })
+      await prisma.host.update({ where: { id: host.id }, data: { singleTenant: savedHost.singleTenant } })
+    }
     if (!guests.get(originalName).devices.eth0) guests.get(originalName).devices.eth0 = {
       type: 'nic', nictype: 'bridged', parent: 'incusbr0', name: 'eth0', 'ipv4.address': instance.ipv4
     }

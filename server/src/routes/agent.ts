@@ -35,6 +35,7 @@ import {
 import { acceptPortProtocolReport } from '../services/host-port-protocol.js'
 import { processAgentInstanceReport } from '../services/agent-instance-report.js'
 import { shouldUpgradeAgent } from '../lib/agent-version.js'
+import { poolResourceGuestInstructions } from '../services/pool-resource-reconciliation.js'
 
 interface AgentCredentialsParams {
   hostId: string
@@ -1686,6 +1687,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const hostProtocol = await prisma.host.findUniqueOrThrow({ where: { id: agent.hostId }, select: { portProtocol: true, portProtocolRevision: true, singleTenant: true } })
     return {
       poolHostBbr: hostProtocol.singleTenant,
+      resourceGuests: await poolResourceGuestInstructions(agent.hostId),
       portProtocol: { mode: hostProtocol.portProtocol, revision: hostProtocol.portProtocolRevision },
       abusePolicy,
       ok: true,

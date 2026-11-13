@@ -63,7 +63,7 @@ const entries = computed(() => props.order.instances.map(instance => {
     hint: state === 'refunded' && instance.refundedToBalance === true ? 'cart.result.refundedToBalanceHint' : stateHints[state],
     hasConnection: Boolean(instance.host && instance.sshPort),
     hasPassword: Boolean(instance.rootPassword && instance.status !== 'error'),
-    hasIpv6: ['ready', 'creating', 'updating'].includes(state) && Boolean(instance.publicIpv6Addresses?.length || ['pending', 'failed'].includes(instance.publicIpv6Status || ''))
+    hasIpv6: state === 'ready' && Boolean(instance.publicIpv6Addresses?.length || ['pending', 'failed'].includes(instance.publicIpv6Status || ''))
   }
 }))
 const readyCount = computed(() => entries.value.filter(entry => entry.state === 'ready').length)

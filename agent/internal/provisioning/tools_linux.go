@@ -79,6 +79,9 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 func check(ctx context.Context) error {
+	if _, e := systemTool("lxcfs"); e != nil {
+		return e
+	}
 	for _, n := range required {
 		if _, e := systemTool(n); e != nil {
 			return e
@@ -149,7 +152,7 @@ func safePlan(output string, alpine bool) error {
 	if strings.Contains(output, "Purging ") || strings.Contains(output, "Removing ") || aptRemove.MatchString(output) {
 		return fmt.Errorf("package removal refused")
 	}
-	allowed := map[string]bool{"apparmor": true, "apparmor-utils": true, "libapparmor": true, "py3-apparmor": true, "py3-libapparmor": true, "perl": true, "tar": true, "gzip": true, "xz": true, "xz-utils": true, "squashfs-tools": true, "rsync": true}
+	allowed := map[string]bool{"apparmor": true, "apparmor-utils": true, "libapparmor": true, "py3-apparmor": true, "py3-libapparmor": true, "perl": true, "tar": true, "gzip": true, "xz": true, "xz-utils": true, "squashfs-tools": true, "rsync": true, "lxcfs": true, "lxcfs-openrc": true}
 	if alpine {
 		for _, m := range apkChange.FindAllStringSubmatch(output, -1) {
 			if m[1] != "Installing" && !allowed[m[2]] {

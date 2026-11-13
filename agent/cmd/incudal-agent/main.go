@@ -226,6 +226,7 @@ func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalS
 	if result.PoolHostBBR != nil {
 		tcpPerformance.SetPoolHost(*result.PoolHostBBR)
 		provisioningTools.SetPoolHost(*result.PoolHostBBR)
+		provisioningTools.SetGuests(result.ResourceGuests)
 	}
 	abusePolicy.Sync(ctx, result.AbusePolicy)
 	if result.PortProtocol != nil {

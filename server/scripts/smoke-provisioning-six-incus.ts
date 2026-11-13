@@ -162,6 +162,12 @@ try {
     }
     assert.equal(verified, true, `${image}: generated initialization and real password SSH`)
     const pinnedKeys = await instanceSshFingerprints(transport, name)
+    execFileSync('/tmp/incudal-resource-tests', ['-test.run', '^TestNativeGuestResourceVisibility$', '-test.v'],
+      {env:{...process.env,INCUDAL_NATIVE_VISIBILITY_GUEST:name},stdio:'inherit',timeout:40000})
+    const resourceMemory = await execWithOutput(transport, name, ['sh', '-c', 'head -n 1 /proc/meminfo; cat /sys/fs/cgroup/memory.max'], {}, 5000)
+    assert.equal((resourceMemory.metadata as {return?:number}).return,0)
+    assert.match(resourceMemory.stdout,/^MemTotal:\s+1048576 kB/m,'LXCFS must show the 1024 MiB guest rather than host physical memory')
+    assert.match(resourceMemory.stdout,/\b1073741824\b/,'cgroup hard limit must be exactly 1024 MiB')
     const scanned = await execWithOutput(transport, name, ['sh', '-c',
       'set -eu; directory=$(mktemp -d); trap \'rm -f "$directory/keys"; rmdir "$directory"\' EXIT; ssh-keyscan -T 4 127.0.0.1 > "$directory/keys" 2>/dev/null; ssh-keygen -lf "$directory/keys" -E sha256'], {}, 15000)
     assert.equal((scanned.metadata as { return?: number }).return, 0)

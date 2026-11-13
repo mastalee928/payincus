@@ -1,3 +1,4 @@
+import { incusResourceSize } from '../resource-size.js'
 import { removeDedicatedForward } from './dedicated-network.js'
 import { verifyInstanceAbsent, verifyInstanceDeleted } from './verify-instance-deleted.js'
 /**
@@ -488,7 +489,7 @@ export async function patchInstanceResources(
   // 更新内存配置
   if (resources.memory !== undefined) {
     patchData.config = patchData.config || {}
-    patchData.config['limits.memory'] = `${resources.memory}MB`
+    patchData.config['limits.memory'] = incusResourceSize(resources.memory)
   }
 
   // 更新磁盘配置
@@ -503,7 +504,7 @@ export async function patchInstanceResources(
         path: '/',
         pool: currentRoot.pool || 'default',
         type: 'disk',
-        size: `${resources.disk}MB`
+        size: incusResourceSize(resources.disk)
       }
     }
   }
@@ -705,7 +706,7 @@ export function buildInstanceConfig(options: BuildInstanceConfigOptions): Record
     // limits.cpu.allowance: CPU额配百分比（用户选择的值）
     'limits.cpu': String(allowanceToCores(cpu)),
     'limits.cpu.allowance': `${cpu}%`,
-    'limits.memory': `${memory}MB`
+    'limits.memory': incusResourceSize(memory)
   }
 
   if (instanceType === 'container' && (swapEnabled !== undefined || swapSize !== undefined)) {
@@ -717,7 +718,7 @@ export function buildInstanceConfig(options: BuildInstanceConfigOptions): Record
     path: '/',
     pool: storagePool || 'default',
     type: 'disk',
-    size: `${disk}MB`
+    size: incusResourceSize(disk)
   }
 
   // Apply storage I/O limits to root device

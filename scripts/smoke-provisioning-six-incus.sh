@@ -4,7 +4,8 @@ set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted && $EUID -eq 0 ]] || exit 1
 [[ ! -e /opt/incudal && ! -d /var/lib/incus/containers ]] || exit 1
 apt-get update -qq
-apt-get install -y -qq incus openssl openssh-server apparmor squashfs-tools rsync xz-utils wireguard-tools nftables iptables
+apt-get install -y -qq incus openssl openssh-server apparmor squashfs-tools rsync xz-utils wireguard-tools nftables iptables lxcfs
+systemctl start lxcfs
 systemctl start ssh
 test "$(cat /sys/module/apparmor/parameters/enabled)" = Y
 aa-exec --help >/dev/null

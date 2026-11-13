@@ -50,6 +50,7 @@ jobs:
           trap 'rm -f agent/internal/guestguard/pool_delivery_native_linux_test.go' EXIT
           cp scripts/fixtures/pool-delivery-guard/native_linux_test.go agent/internal/guestguard/pool_delivery_native_linux_test.go
           (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-pool-guard-tests ./internal/guestguard)
+          (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-resource-tests ./internal/provisioning)
       - name: Real AppArmor image unpack, generated initialization, password SSH and cleanup
         run: sudo env "PATH=$PATH" "DATABASE_URL=$DATABASE_URL" "JWT_SECRET=$JWT_SECRET" "INCUDAL_NATIVE_IMAGE=$INCUDAL_NATIVE_IMAGE" GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted bash scripts/smoke-provisioning-six-incus.sh
   onboarding-ip-integration:

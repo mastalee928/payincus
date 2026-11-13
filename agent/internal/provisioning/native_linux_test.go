@@ -19,6 +19,11 @@ func TestNativeRepairAndDrift(t *testing.T) {
 	if err := repair(ctx); err != nil {
 		t.Fatal("automatic package preparation", err)
 	}
+	if os.Getenv("INCUDAL_PROVISIONING_VISIBILITY_TEST") == "1" {
+		if err := ensureResourceVisibility(ctx); err != nil {
+			t.Fatal("native LXCFS service and packaged hook", err)
+		}
+	}
 	if err := check(ctx); err != nil {
 		t.Fatal("executable readiness", err)
 	}

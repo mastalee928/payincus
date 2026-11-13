@@ -6,6 +6,7 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:resource-size": "node --import tsx scripts/test-resource-size.ts",
     "test:expiry-enforcement-regressions": "node --import tsx scripts/test-expiry-enforcement-regressions.ts",
     "test:expiry-concurrency-regressions": "node --import tsx scripts/test-expiry-concurrency-regressions.ts",
     "test:guest-network-clock-transport": "node --import tsx scripts/test-guest-network-clock-transport.ts",

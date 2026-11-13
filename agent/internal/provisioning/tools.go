@@ -1,5 +1,5 @@
-// Package provisioning repairs only the host tools required by Incus image
-// unpacking. It never enters guests, restarts services or changes host identity.
+// Package provisioning repairs Incus image tools and LXCFS resource visibility.
+// It never restarts Incus or customers or changes host identity.
 package provisioning
 
 import (
@@ -21,19 +21,37 @@ type Engine struct {
 	mu      sync.Mutex
 	enabled *bool
 	status  Status
+	guests  []Guest
+}
+type Guest struct {
+	Name      string `json:"name"`
+	UUID      string `json:"uuid"`
+	MemoryMiB int    `json:"memoryMiB"`
 }
 
 func New() *Engine                   { return &Engine{} }
 func (e *Engine) SetPoolHost(v bool) { e.mu.Lock(); e.enabled = &v; e.mu.Unlock() }
-func (e *Engine) Status() Status     { e.mu.Lock(); defer e.mu.Unlock(); return e.status }
+func (e *Engine) SetGuests(v []Guest) {
+	e.mu.Lock()
+	e.guests = append([]Guest(nil), v...)
+	e.mu.Unlock()
+}
+func (e *Engine) Status() Status { e.mu.Lock(); defer e.mu.Unlock(); return e.status }
 func (e *Engine) Run(ctx context.Context) {
 	for ctx.Err() == nil {
 		e.mu.Lock()
 		enabled := e.enabled != nil && *e.enabled
+		guests := append([]Guest(nil), e.guests...)
 		e.mu.Unlock()
 		if enabled {
 			c, cancel := context.WithTimeout(ctx, 55*time.Second)
 			err := repair(c)
+			if err == nil {
+				err = ensureResourceVisibility(c)
+			}
+			if err == nil {
+				err = repairGuestVisibility(c, guests)
+			}
 			cancel()
 			s := Status{Version: 1, Ready: err == nil, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
 			if err != nil {
@@ -62,9 +80,9 @@ func packagesFor(release string) ([]string, error) {
 	}
 	switch fields["ID"] {
 	case "alpine":
-		return []string{"apparmor-utils", "tar", "gzip", "xz", "squashfs-tools", "rsync"}, nil
+		return []string{"apparmor-utils", "tar", "gzip", "xz", "squashfs-tools", "rsync", "lxcfs", "lxcfs-openrc"}, nil
 	case "debian", "ubuntu":
-		return []string{"apparmor", "tar", "gzip", "xz-utils", "squashfs-tools", "rsync"}, nil
+		return []string{"apparmor", "tar", "gzip", "xz-utils", "squashfs-tools", "rsync", "lxcfs"}, nil
 	default:
 		return nil, fmt.Errorf("host distribution unsupported")
 	}
