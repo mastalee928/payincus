@@ -60,6 +60,7 @@ const entries = computed(() => props.order.instances.map(instance => {
   const state = instanceState(instance)
   return {
     instance, state, tone: stateTones[state],
+    hint: state === 'refunded' && instance.refundedToBalance === true ? 'cart.result.refundedToBalanceHint' : stateHints[state],
     hasConnection: Boolean(instance.host && instance.sshPort),
     hasPassword: Boolean(instance.rootPassword && instance.status !== 'error'),
     hasIpv6: ['ready', 'creating', 'updating'].includes(state) && Boolean(instance.publicIpv6Addresses?.length || ['pending', 'failed'].includes(instance.publicIpv6Status || ''))
@@ -138,7 +139,7 @@ onUnmounted(() => { disposed = true; resetCopies() })
           <CircleAlert v-if="entry.state === 'failed'" :size="20" aria-hidden="true" />
           <RefreshCw v-else-if="entry.state === 'refunded' || entry.state === 'refundPending'" :size="20" aria-hidden="true" />
           <Terminal v-else :size="20" aria-hidden="true" />
-          <p>{{ t(stateHints[entry.state]) }}</p>
+          <p>{{ t(entry.hint) }}</p>
         </div>
 
         <div v-if="entry.hasConnection || entry.hasIpv6 || entry.hasPassword" class="order-connection-grid">

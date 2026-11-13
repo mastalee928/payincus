@@ -8891,6 +8891,7 @@ poolPurchase: {
     "expired": "Order expired"
   },
   "refundStates": {
+    "balance": "Returned to account balance",
     "pending": "Refund to original payment method pending",
     "refunded": "Refund recorded"
   },
@@ -8923,6 +8924,7 @@ cart: {
     refunding: 'Refund processing',
     failedHint: 'This server could not be set up. Contact the administrator for help.',
     refundedHint: 'This server could not be set up. Its payment has been refunded.',
+    refundedToBalanceHint: 'This server could not be set up. The payment has been automatically returned to your account balance.',
     noInstances: 'There are no instances to display for this order. You can check your instance list.',
     ipv4: 'Public IPv4',
     sshCommand: 'SSH command',

@@ -5,7 +5,7 @@ import {
   advisoryTransactionLock
 } from './advisory-locks.js'
 import { prisma } from './prisma.js'
-import { requestCheckoutRefund } from '../services/checkout-orders.js'
+import { creditFailedCheckoutRefundToBalance } from '../services/checkout-orders.js'
 import { getMaxRefundable } from './billing-operations.js'
 
 export async function compensateFailedInstancePurchase(
@@ -78,12 +78,11 @@ export async function compensateFailedInstancePurchase(
     const checkout = instance.purchaseBatchId ? await tx.checkoutOrder.findUnique({ where: { id: instance.purchaseBatchId } }) : null
     const external = !!checkout?.paymentId && checkout.paymentId !== 'balance'
     if (external && checkout) {
-      const refundId = await requestCheckoutRefund(tx, checkout, instanceId, Math.round(refundAmount * 100), 'provisioning_failed')
-      if (!refundId) throw new Error('原付款退款记录未能创建')
-      // The negative bill records a refund liability; only the payment receipt marks money returned.
+      const refunded = await creditFailedCheckoutRefundToBalance(tx, checkout, instanceId, Math.round(refundAmount * 100), 'provisioning_failed')
       const now = new Date()
       await tx.instanceBillingRecord.create({ data: { instanceId, userId, type: 'refund', amount: -refundAmount,
-        months: 0, periodStart: now, periodEnd: now, balanceLogId: null, checkoutRefunds: { connect: { id: refundId } }, remark: `实例创建失败自动退款（原路退款待处理）：${instance.name}` } })
+        months: 0, periodStart: now, periodEnd: now, balanceLogId: refunded.balanceLogId,
+        checkoutRefunds: { connect: { id: refunded.refundId } }, remark: `实例创建失败自动退款（退至账户余额）：${instance.name}` } })
     } else {
     const user = await tx.user.findUnique({
       where: { id: userId },
@@ -205,7 +204,7 @@ export async function compensateFailedInstancePurchase(
       }
     })
 
-    return external ? { refunded: false, refundAmount, reason: 'external_refund_pending' } : { refunded: true, refundAmount }
+    return { refunded: true, refundAmount }
   }, {
     // Blocking balance locks serialize refunds. Read after the lock is acquired:
     // a Serializable snapshot taken while waiting can abort sibling cart refunds.

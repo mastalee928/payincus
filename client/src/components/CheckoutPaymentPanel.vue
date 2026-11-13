@@ -177,7 +177,7 @@ onBeforeUnmount(() => { alive = false; active = false; reset() })
           <p v-else-if="['paid','fulfilling'].includes(order.status)" class="payment-hint">{{ t('checkout.automaticDelivery') }}</p>
         </section>
       </div>
-      <div v-if="order.refunds.length" class="payment-refunds"><h2>{{ t('checkout.refunds') }}</h2><p v-for="refund in order.refunds" :key="refund.id">{{ t(`checkout.refundStates.${refund.status}`) }} <strong>¥{{ formatPublicPrice(refund.amountCents) }}</strong></p></div>
+      <div v-if="order.refunds.length" class="payment-refunds"><h2>{{ t('checkout.refunds') }}</h2><p v-for="refund in order.refunds" :key="refund.id">{{ t(refund.refundedToBalance ? 'checkout.refundStates.balance' : `checkout.refundStates.${refund.status}`) }} <strong>¥{{ formatPublicPrice(refund.amountCents) }}</strong></p></div>
     </template>
   </section>
 </template>

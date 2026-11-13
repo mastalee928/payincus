@@ -69,6 +69,7 @@ export interface PoolOrderResult {
     status: string
     refunded: boolean
     refundPending: boolean
+    refundedToBalance?: boolean
     sshPort: number | null
     rootPassword: string | null
     publicIpUpdating: boolean
@@ -276,6 +277,17 @@ export async function getPoolOrderResult(userId: number, batchId: string, client
   const refunds = await client.instanceBillingRecord.findMany({ where: { userId, instanceId: { in: instances.map(instance => instance.id) }, type: 'refund' }, select: { instanceId: true, amount: true, remark: true } })
   const failedIds = new Set(instances.filter(instance => instance.status === 'error' || (instance.snapshottedSpecs as { poolProvision?: { phase?: string } } | null)?.poolProvision?.phase === 'failed').map(instance => instance.id))
   const externalRefunds = await client.checkoutRefund.findMany({ where: { orderId: batchId, instanceId: { in: instances.map(instance => instance.id) } } })
+  const ledgerIds = externalRefunds.flatMap(refund => {
+    const id = refund.status === 'refunded' ? /^balance-log:([1-9]\d*)$/.exec(refund.resolution || '')?.[1] : undefined
+    return id && Number.isSafeInteger(Number(id)) && Number(id) <= 2147483647 ? [Number(id)] : []
+  })
+  const walletReceipts = ledgerIds.length ? await client.balanceLog.findMany({ where: {
+    id: { in: ledgerIds }, userId, orderId: batchId, type: 'refund'
+  }, select: { id: true, instanceId: true, amount: true, balanceBefore: true, balanceAfter: true } }) : []
+  const creditedInstances = new Set(externalRefunds.filter(refund => ['provisioning_failed','fulfillment_failed'].includes(refund.reason) && walletReceipts.some(ledger =>
+    refund.resolution === `balance-log:${ledger.id}` && ledger.instanceId === refund.instanceId &&
+    Math.round(Number(ledger.amount) * 100) === refund.amountCents &&
+    ledger.balanceAfter.minus(ledger.balanceBefore).equals(ledger.amount))).map(refund => refund.instanceId))
   const pendingExternal = new Set(externalRefunds.filter(refund => refund.status === 'pending').map(refund => refund.instanceId))
   const refunded = new Set(refunds.filter(refund => refund.remark?.includes('实例创建失败自动退款') && !pendingExternal.has(refund.instanceId)).map(refund => refund.instanceId))
   const purchases = await client.instanceBillingRecord.findMany({ where: { userId, instanceId: { in: instances.map(instance => instance.id) }, type: 'newPurchase' }, select: { instanceId: true, amount: true } })
@@ -289,6 +301,7 @@ export async function getPoolOrderResult(userId: number, batchId: string, client
     const ready = instance.dedicatedNetworkReady && !instance.host.publicIpSyncBlocked && ['running', 'stopped'].includes(instance.status)
     const ipv6 = customerIpv6View(instance.dedicatedIpv6, { hostId: instance.hostId, instanceName: instance.incusId, networkReady: instance.dedicatedNetworkReady })
     return { id: instance.id, name: instance.name, incusId: instance.incusId, status: failedCreation ? 'error' : instance.status, refunded: refunded.has(instance.id),
+      refundedToBalance: refunded.has(instance.id) && creditedInstances.has(instance.id),
       refundPending: (failedCreation || instance.status === 'error') && (pendingExternal.has(instance.id) || (paid.has(instance.id) && !refunded.has(instance.id))),
       host: ready ? instance.host.natPublicIp : null, sshPort: ready ? 22 : null, publicIpUpdating: instance.host.publicIpSyncBlocked,
       publicIpv6Addresses: ['running', 'stopped'].includes(instance.status) ? ipv6?.addresses ?? [] : [], publicIpv6Status: ipv6?.status ?? 'none',

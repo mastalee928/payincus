@@ -9270,6 +9270,7 @@ poolPurchase: {
     "expired": "訂單已過期"
   },
   "refundStates": {
+    "balance": "已退至帳戶餘額",
     "pending": "原路退款處理中",
     "refunded": "已登記原路退款"
   },
@@ -9302,6 +9303,7 @@ cart: {
     refunding: '退款處理中',
     failedHint: '主機未能完成開通，請聯絡管理員處理。',
     refundedHint: '本台主機未能開通，費用已按原付款方式退回。',
+    refundedToBalanceHint: '本台主機未能開通，款項已自動退至帳戶餘額。',
     noInstances: '此訂單目前沒有可顯示的實例。可前往實例清單查看。',
     ipv4: '公網 IPv4',
     sshCommand: 'SSH 連線指令',

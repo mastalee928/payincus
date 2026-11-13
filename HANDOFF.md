@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 补充自动退余额专项与五轮完成，本地PG/浏览器/types/双build/边界/lint通过；全量218/219，Agent安装器60s外层超时后同源码单跑10场景exit0，失败并非产品断言（保留日志）。最后本金/付款匹配已进最终server/dist；提交新候选必须完整CI／预览验证，通过后正式发行并依owner授权主控OTA及实购。给定测试域名解析仍待用户回答。
+
+- 排队第三方失败自动退余额已实施，真实余额／原回执／bill同事务，指定文案按实际ledger显示，订单退款区与恢复账务精修，五轮及专项证据见[补充记录](docs/failed-checkout-wallet-refund-2026-11-13.md)。易支付／USDT／费分摊／回滚重试／恢复篡改等PG与browser通过，最终全量仍运行；原批27/27与十预览不能代替最后源码。Owner已授权全修后主控OTA＋poolbuyer实购；给定vm-test.masta.ee不可解析，已核当前配置vm.oci.ee，地址待确认，凭据仓库外private。无正式tag／Release／OTA。
+
 - 原批2f0ff43f CI43337700170已最终27/27success，预览43337716631十必需job全部success、Release预期skipped，Alpine43337700105success。原批闭环后开始排队「第三方开通失败自动退余额＋新文案」；当前原资金去向未改，正式v1.8.10未发布，须最终源码全部通过再发行。
 
 - 原批无tag预览43337716631已success：双构建／双首装／六原v1.8.9worker升级及故障回滚再升级10/10success，Release预期skipped。两实际包修复模块、242迁移、原pin签名hash/size/mode/架构、管理员API与用户权限边界独立核通过。CI43337700170尚待六分片浏览器尾段终态，无已知失败；未正式发行，新退款入余额要求仍待本批闭环后实施。

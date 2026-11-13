@@ -8964,6 +8964,7 @@ poolPurchase: {
     "expired": "订单已过期"
   },
   "refundStates": {
+    "balance": "已退至账户余额",
     "pending": "原路退款处理中",
     "refunded": "已登记原路退款"
   },
@@ -8996,6 +8997,7 @@ cart: {
     refunding: '退款处理中',
     failedHint: '主机未能完成开通，请联系管理员处理。',
     refundedHint: '本台主机未能开通，费用已按原支付方式退回。',
+    refundedToBalanceHint: '本台主机未能开通，款项已自动退至账户余额。',
     noInstances: '此订单当前没有可显示的实例。可前往实例列表查看。',
     ipv4: '公网 IPv4',
     sshCommand: 'SSH 连接命令',

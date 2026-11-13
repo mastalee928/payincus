@@ -84,6 +84,11 @@ try {
   }
 
   console.log('PASS result creating/refund-pending/refunded/address-updating/ready states and password hidden by default')
+  await fresh();await run(()=>window.checkoutHarness.router.push('/checkout?order=external-balance'))
+  await accept('order',{...result('external-balance'),instances:[{...result('external-balance').instances[0],status:'error',refunded:true,refundPending:false,refundedToBalance:true}]})
+  assert.equal(await page.eval(()=>document.querySelector('.order-instance-notice p').textContent),'本台主机未能开通，款项已自动退至账户余额。')
+  assert.equal(await page.eval(()=>document.body.innerText.includes('费用已按原支付方式退回')),false)
+  await fresh();await show('state-4')
   for(const width of [1440,768,390])for(const theme of ['light','dark']) {
     await page.setViewport({width,height:900});await run(theme=>window.checkoutHarness.theme.setTheme(theme),theme);await sleep(150)
     assert.equal(await page.eval(()=>document.documentElement.scrollWidth>innerWidth),false)
