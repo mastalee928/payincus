@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 最终收尾：六公开资产与两实际正式tar逐文件独立核验全部通过（原pin签名、来源92829310、243迁移、DNS/SSH/重装/心跳修复、用户无改价入口、无镜像图库随包）；本轮上线目标完成。正式v1.8.10/Agent1.0.14已公开；主控已候选同源码实测，客户#27/#41原PID/boot/密码/文件/UUID/价格/账期及SSH/IPv6/768MiB保持，两架构各24镜像通过，34在线/BBR、23可售、零在途与图库保持。完整OSS新B灾备等长期目标仍独立未验，不由本次发行代替。
+
+- 2026-11-14 07:18:48 UTC [v1.8.10](https://github.com/mastalee928/payincus/releases/tag/v1.8.10)已正式公开并为latest，Agent v1.0.14已公开。六公开资产重新下载后size/API digest/sha/OTA逐项核过，两正式tar原签名/source/243迁移/本批修复独立核验收尾；公开包就是正式run43568813210原包，稳定tag指向92829310未移动。后续发版skip修复与台账f5dec0b2已推main/原分支，产品代码未改。完整镜像两架构24/24、主控候选更新49与真实客户/库存/账务验收前文已闭环；目标主控仍preview-9282931，同产品源码已运行，不宣称已正式包OTA。
+
 - v1.8.10正式43568813210全部双包/双首装/六旧worker升级成功，main43568136335也29/29成功；但末尾publish被间接preview-agent skipped隐式success拦住。已修workflow release条件为always()+三个必需needs.result精确success并加守卫。未移动稳定tag、未改正式tar，逐job核成功来源后使用本run原包按同OTA格式创建正式v1.8.10，六资产重新下载核验中。正式amd64 214572932B SHAb8b19d7a94ef5ae057bf25c1b1851656cab2c518989e4f86fd915fa87bc54dec；arm64 213798038B SHAdc154e9a58509f2b7c0a0f31f626ae99e054f457efe26dc6eb71a2a3de0076c0。主控仍同产品候选preview-9282931，不能称已安装正式tar。
 
 - 2026-11-14正式发行开始：PR14已精确快进合并为9282931002563528c22e4079f1c12721a5ff1f11；Agent main43568136313全部成功并于06:54:18UTC正式agent-v1.0.14公开，实际下载amd64 27885720B/04ac54ea0f5494f9727757880836353d53a9a011cca7580bf96f78638ba51b30，arm64 25297048B/5c496c7440334e7007bcb12433938d3c8dee7d1aa17a88704613e3cc441420ff，与现场候选相同，LICENSE也核digest。v1.8.10注释tag已推指向同最终产品，正式面板workflow进行；mainCI43568136335仍尾段，面板Release/最终公开资产未完成。主控已候选通过，不提前称正式OTA完成。
