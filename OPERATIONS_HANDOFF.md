@@ -1,5 +1,7 @@
 # PayIncus 操作手册
 
+2026-11-14 23:56北京时间当前：主控任务51已成功候选preview-7b688d5/source7b688d55，34宿主Agent1.0.15、原空池全自动LVM+Btrfs ready且无离线隔离，图库224文件18.66GB升级保持。完整CI29/29、14compat、Agent、双首装六旧worker升级及双实际tar通过。用户已自行删旧全部实例，agent未重复；本轮实购仅测试账户AMD#45/#46、ARM#47/#48，各2台两单44元。全可选镜像新矩阵在/var/cache/incudal-ota/owner-disk-7b688d55-{amd,arm}，systemd unit同名incudal-owner-disk-7b688d55-*；第一轮真实30GiB已过，24项/架构继续，期间不更新主控或同实例操作。剩删回池重卖/现场核验/正式1.8.11未发行。旧条为历史。
+
 2026-11-14当前正式：v1.8.10（source92829310）与Agent1.0.14已公开，全部镜像AMD/ARM各24、原客户与资源/全池DNS/库存/账务验收通过。主控目标已热更新候选preview-9282931（任务49），运行相同产品代码，正式包未再次部署。两架构实际旧worker/首装、CI及公开包分别有证据。正式workflow末尾发布被间接preview-agent skipped误跳过，已使用该成功run原正式包发布且后续f5dec0b2修always()+必须success条件；不要移动v1.8.10标签或重打原资产。真实客户#27/#41授权一次停启已完成，不重复执行。
 
 2026-11-14 06:05 UTC最新：更新49已success，主控preview-9282931/928293100256，备份/opt/incudal.bak.20261114060335。同来源CI29/29、12compat、Agent/Alpine、双首装/六旧worker升级及两实际签名包全部通过。Agent仍1.0.14，34台新hash已verified；旧一次SSH二次error退出由47771ecf持续监听修复，92829310消除重复verified心跳拿maintenance lane，rebuild_prepared自动续接只针对未发出HTTP。#38新任务833实际Edge/rootfs/SSH/IPv6/sysinfo/UUID/账务通过；06:08以后ARM、06:11以后AMD在续跑剩余镜像，报告明确carry旧passed来源，不在运行矩阵时更新主控或重复操作。新购#44完整通过，仅一次扣11元；真实#27/#41一次授权停启早已完成，后续未重复。正式未发行。
