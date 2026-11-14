@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 3ad647ab八原生43534428864六旧场景全部success，空池两架构在刚storage create后尚有操作回执导致预期零字节断言失败。仅测试改等真实ops metadata完全空再验证普通query零字节/--raw严格成功及自动空池重载，保留有界等待；产品strict envelope不变。新来源待，当前34旧prepared门禁仍待1.0.12实际完成，不发布。
+
 - aa8a291d候选热更新46于2026-11-14 00:20:38UTC成功preview-aa8a291，备份/opt/incudal.bak.20261114001857，原worker/DB支付/243迁移无待执行/双前端/身份检查通过。初次暂存Agent在/opt/incudal/agent-release-aa8a291d触发原seal额外3文件拒绝；核原文件0changed/0removed后移到/var/lib/incudal-agent-release/aa8a291d，原任务46执行成功，未放宽seal。以后候选组件暂存必须在代码目录外。34/34已自然Agent1.0.11，9运行实例PID/UUID/账期/价格/状态及图库224文件18.66GB原样保持；但自动兼容全部prepared、暂挡新售。根因实际Incus query在metadata={}时输出空文本，Agent解析ops失败（尚未替换）；六客机测试含诊断操作没有覆盖空ops。源码改query --raw、严格sync/200/非NULL metadata/所有终态操作校验，Agent递增1.0.12；新增空池×双架构共8原生场景。双vet/编译/版本和工具守卫过，待新来源实际空池/自动续接/目标sysinfo/解除门禁，禁止正式发布。
 
 - 最新产品aa8a291d184135b27945e5636c0f08bab8258bfe：自动native43529108631六组全部success，Agent43529108630success/Release skipped；无tag预览43529100818双构建、兼容双构建、Agent准备、双首装与六原v1.8.9worker升级（含迁移留库和后半程失败回滚再升级）全部success/Release skipped。实际双tar独立签名/原pin/source/243迁移/用户无改价入口/钱包退款/无图库核过；全文件本地比对migration_lock仅CRLF差，CI实际包检查过。完整CI43529108636当前23success/6综合分片运行，尚未全部终态。现场只读基线23:50UTC：34宿主Agent1.0.10均online/tools ready/poolFaulted false，9运行实例MiB/30GiB正确，0在途task，图库存224文件18.66GB。新批未热更新正式发行；私有基线在仓库外hardening29/compat-before-automatic.json。

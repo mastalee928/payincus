@@ -191,13 +191,32 @@ func TestNativeCompatibilityEmptyPoolReload(t *testing.T) {
 	if err != nil || len(rows) != 0 {
 		t.Fatal("pool not empty", err)
 	}
-	plain, err := run(ctx, "incus", "query", "/1.0/operations?recursion=1")
-	if err != nil || len(strings.TrimSpace(string(plain))) != 0 {
-		t.Fatal("expected real suppressed empty query response", err)
-	}
-	raw, err := run(ctx, "incus", "query", "--raw", "/1.0/operations?recursion=1")
-	if err != nil || !compatOperationsIdle(raw) {
-		t.Fatal("real empty envelope", err)
+	for {
+		raw, queryErr := run(ctx, "incus", "query", "--raw", "/1.0/operations?recursion=1")
+		if queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		var response struct {
+			Metadata map[string][]json.RawMessage `json:"metadata"`
+		}
+		if json.Unmarshal(raw, &response) != nil {
+			t.Fatal("empty-pool response invalid")
+		}
+		if len(response.Metadata) == 0 {
+			if !compatOperationsIdle(raw) {
+				t.Fatal("real empty envelope rejected")
+			}
+			plain, queryErr := run(ctx, "incus", "query", "/1.0/operations?recursion=1")
+			if queryErr != nil || len(strings.TrimSpace(string(plain))) != 0 {
+				t.Fatal("real suppressed empty query response", queryErr)
+			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("fixture setup operations did not settle")
+		case <-time.After(time.Second):
+		}
 	}
 	p := &CompatPermit{RequestID: "11111111-1111-4111-8111-111111111111", HostIdentity: strings.Repeat("a", 64), ExpiresAt: time.Now().Add(240 * time.Second).UTC().Format(time.RFC3339Nano)}
 	if err = prepareIncusCompatibility(ctx, p); err != nil {
