@@ -94,7 +94,7 @@ if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = btrfs-rebuild; then
     # Keep a real stopped-instance file helper active before destructive
     # replacement, matching the customer initialization file access path.
     incus file pull native-sysinfo/etc/os-release /tmp/compat-os-release
-    incus rebuild native-sysinfo images:alpine/3.24/tinycloud --force
+    incus rebuild images:alpine/3.24/tinycloud native-sysinfo --force
     incus start native-sysinfo
     timeout -s KILL 10 incus exec native-sysinfo -- cat /etc/os-release
   done
@@ -112,12 +112,12 @@ if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = btrfs-rebuild; then
   btrfs subvolume delete "$target"
   mkdir -m 0100 "$target"
   printf preserve > "$target/owner-data"
-  if incus rebuild native-sysinfo images:alpine/3.24/tinycloud --force; then
+  if incus rebuild images:alpine/3.24/tinycloud native-sysinfo --force; then
     echo 'Nonempty ordinary directory must not be wiped automatically'; exit 1
   fi
   test "$(cat "$target/owner-data")" = preserve
   rm "$target/owner-data"
-  incus rebuild native-sysinfo images:alpine/3.24/tinycloud --force
+  incus rebuild images:alpine/3.24/tinycloud native-sysinfo --force
   incus start native-sysinfo
   timeout -s KILL 10 incus exec native-sysinfo -- cat /etc/os-release
   incus query /1.0/instances/native-sysinfo > /tmp/identity-rebuild-final.json
