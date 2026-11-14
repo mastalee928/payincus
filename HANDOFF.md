@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 最新Btrfs兼容来源9de500ff固定生命周期hash4434934a...859ffe5：补原根disk pool在失败卷登记被删后重试；types/双Go vet编译及PG下一代许可完整回归已过。原生43545187185两Btrfs job失败都在首次建池前BusyBox losetup缺--find，尚未重装，不是补丁失败；一次性fixture补正式Alpine安装已有util-linux/losetup，前ext4 source误用已改Incus自建loop。其它正常/准备/回滚/空池继续成功，最终Btrfs/native/目标38重装与所有镜像仍待，未正式发行。#27/#41授权停启均passed，旧error字段是已核网络同步后的历史诊断。
+
 - Btrfs残留恢复复审补DeleteVolume：已有空普通目录会被HasVolume视为卷，先btrfs delete同样拒绝。复制与删除两个阶段均持mount锁/无引用，仅rmdir inode非256的空普通目录；真实子卷/非空/链接拒绝，原子实例重装lane+forkfile保持。生命周期hash固定fc08e46b...d5cba3b，替代此前adc候选；原924原生仍只代表未完善版本，最终新native待。ARM SFTP静态probe完整镜像已2项过、其它继续，无账務变化。
 
 - #38 Btrfs根因/源码候选：实际旧卷删除后留下inode265空普通目录、无实例symlink/在途ops；原Incus lxc Rebuild没有操作lane和结束forkfile，SFTP可在替换窗口MountVolume/EnsureMountPath重建目标。固定官方7.0.1兼容构建补重装ActionRestore互斥+stopForkfile；Btrfs复制持mount锁/无引用，只rmdir空普通目录（真实subvolume inode256/链接/非空拒绝）。生命周期文件合hash adc1c50d...c39d4钉死，新增真实Btrfs重复重装/文件服务/精确空目录恢复；Agent1.0.13和主控下一代hash许可/原回滚archive续接。server types、双Go vet/test编译、host-tools/agent-version/资源/隔离守卫和完整PG/mTLS重装/换机/两代许可账务回归过，新原生/CI/热更新仍待，正式不发。测试Probe由Python改静态后二次大参数失败属传输，现受信SSH+SFTP/Incus file push方案ARM正常进入停启，无customer Python依赖。

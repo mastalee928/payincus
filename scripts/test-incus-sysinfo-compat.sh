@@ -23,7 +23,7 @@ ls -l /proc/$old/exe /run/incus /var/lib/incus || true
 cat /tmp/incusd-original.log
 if ! incus admin waitready --timeout=60; then cat /tmp/incusd-original.log; exit 1; fi
 if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = btrfs-rebuild; then
-  apk add --no-cache btrfs-progs
+  apk add --no-cache btrfs-progs util-linux util-linux-misc losetup
   # Let Incus create and format its own disposable loop-backed block device.
   # A source=regular-file is treated as an existing mounted Btrfs directory.
   incus storage create default btrfs size=1GiB
