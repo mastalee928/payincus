@@ -24,8 +24,9 @@ cat /tmp/incusd-original.log
 if ! incus admin waitready --timeout=60; then cat /tmp/incusd-original.log; exit 1; fi
 if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = btrfs-rebuild; then
   apk add --no-cache btrfs-progs
-  truncate -s 1G /tmp/compat-btrfs.img
-  incus storage create default btrfs source=/tmp/compat-btrfs.img
+  # Let Incus create and format its own disposable loop-backed block device.
+  # A source=regular-file is treated as an existing mounted Btrfs directory.
+  incus storage create default btrfs size=1GiB
 else
   incus storage create default dir
 fi
