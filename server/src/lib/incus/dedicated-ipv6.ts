@@ -8,6 +8,7 @@ import { dedicatedIpv6Address, dedicatedIpv6Gateway, dedicatedIpv6State, normali
 import { verifyPublicSshIdentity, PublicIpSyncError } from '../host-public-ip.js'
 import { verifyDedicatedIpv6FromGuest } from './dedicated-ipv6-probe.js'
 import { guestSshFingerprintsCommand } from '../ssh-host-identity.js'
+import { alpineGuestDnsRepairScript } from '../alpine-guest-dns.js'
 
 const bridge = '/1.0/networks/incusbr0'
 const guestDirectory = '/etc/payincus/ipv6'
@@ -166,6 +167,7 @@ fi
 # cloud-init used to disable IPv6 for NAT guests; let that first boot finish first.
 if [ -d /var/lib/cloud/instance ] && [ ! -f /var/lib/cloud/instance/boot-finished ]; then exit 75; fi
 command -v ip >/dev/null
+${alpineGuestDnsRepairScript}
 # Tiny Cloud images can have neither curl nor Python. Repair only this missing
 # probe dependency, using the installed Alpine branch and its signed packages.
 if ! command -v curl >/dev/null && ! command -v python3 >/dev/null && [ -f /etc/alpine-release ]; then

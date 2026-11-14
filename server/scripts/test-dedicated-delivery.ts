@@ -165,6 +165,10 @@ for (const [alias, service, packageManager] of osPasswordMatrix) {
       if (type === 'virtual-machine' && packageManager === 'apk') {
         assert.ok(cloudConfig.includes('qemu-guest-agent openssh curl'), `${label}: Alpine must install both server and client tooling`)
       }
+      if (type === 'container' && packageManager === 'apk') {
+        assert.ok(cloudConfig.includes('dhcpcd openresolv'), `${label}: DNS updates use the distribution resolver aggregator`)
+        assert.ok(!cloudConfig.includes('rc-update add dhcpcd default'), `${label}: ifupdown must not race a second global DHCP client`)
+      }
       assert.ok(cloudConfig.includes(packageManager === 'apk' ? 'rc-service sshd restart' : `systemctl restart ${service}`),
         `${label}: restart the distribution's SSH service`)
     }

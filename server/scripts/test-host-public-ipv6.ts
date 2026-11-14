@@ -167,6 +167,10 @@ assert.match(bootInstall, /cmp -s - \/etc\/systemd\/system\/payincus-ipv6.servic
 assert.match(bootInstall, /readlink -f "\$old_link"/)
 assert.doesNotMatch(bootInstall, /cloud-init clean|cloud-init init|reboot|systemctl restart cloud/)
 assert.match(bootInstall, /timeout 15 apk add --no-cache curl/)
+assert.match(bootInstall, /rc-update del dhcpcd default/)
+assert.match(bootInstall, /\[ ! -L \/etc\/resolv.conf \] && \[ ! -s \/etc\/resolv.conf \]/)
+assert.match(bootInstall, /timeout 15 apk add --no-cache openresolv/)
+assert.doesNotMatch(bootInstall, /rc-service (?:networking|dhcpcd) (?:stop|restart)|killall dhcpcd/)
 assert.doesNotMatch(bootInstall, /--allow-untrusted|--no-check-certificate|apk.*upgrade/)
 
 // A missing host-side source mapping must not be advertised as working IPv6.

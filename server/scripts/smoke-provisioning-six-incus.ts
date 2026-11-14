@@ -177,6 +177,47 @@ try {
     assert.ok(scannedKeys.length && scannedKeys.every(key => pinnedKeys.includes(key)), `${image}: every OpenSSH host key is pinned, including newly supported algorithms`)
     const probeTools = await execWithOutput(transport, name, ['sh', '-c', 'set -e; for tool in ssh ssh-keyscan ssh-keygen timeout; do command -v "$tool"; done; command -v curl || command -v python3'], {}, 5000)
     assert.equal((probeTools.metadata as { return?: number }).return, 0, `${image}: IPv4-only controller guest IPv6 probe tools are installed`)
+    if (image === 'alpine/3.21/tinycloud') {
+      const command = async (script: string, timeout = 15000) => {
+        const result = await execWithOutput(transport, name, ['/bin/sh', '-c', `set -e\n${script}`], {}, timeout)
+        assert.equal((result.metadata as { return?: number }).return, 0)
+        return result.stdout
+      }
+      await command('command -v resolvconf; test ! -L /etc/runlevels/default/dhcpcd; grep -q "^nameserver " /etc/resolv.conf')
+      const initialization = await command('stat -c %Y /var/lib/incudal/initialization-ready')
+      // Reproduce the old generator's extra global DHCP client in this
+      // disposable guest, then exercise automatic repair without a reboot.
+      await command("printf '\\n# rc-update add dhcpcd default\\n' >> /usr/local/bin/incudal-required-init.sh; rc-update add dhcpcd default; apk del openresolv")
+      execFileSync('incus', ['restart', name, '--force'], { timeout: 30000 })
+      let leaseReady = false
+      for (let attempt = 0; attempt < 40; attempt++) {
+        try {
+          await command('grep -q "^nameserver " /run/dhcpcd/hook-state/resolv.conf/eth0.dhcp; test -s /run/dhcpcd/pid; test -s /run/dhcpcd/eth0.pid')
+          leaseReady = true; break
+        } catch { await new Promise(resolve => setTimeout(resolve, 1500)) }
+      }
+      assert.equal(leaseReady, true, 'old duplicate DHCP processes and lease exist')
+      await command(': > /etc/resolv.conf')
+      const oldBoot = await command('cat /proc/sys/kernel/random/boot_id')
+      await command(dedicatedIpv6InstallScript(null, []), 20000)
+      await command('command -v resolvconf; test ! -L /etc/runlevels/default/dhcpcd; grep -q "^nameserver " /etc/resolv.conf; timeout 8 nslookup dl-cdn.alpinelinux.org')
+      assert.equal(await command('cat /proc/sys/kernel/random/boot_id'), oldBoot, 'DNS repair does not reboot the guest')
+      // A customer-managed symlink must remain a symlink during reconciliation.
+      await command('cp /etc/resolv.conf /etc/customer-resolver; rm /etc/resolv.conf; ln -s /etc/customer-resolver /etc/resolv.conf')
+      await command(dedicatedIpv6InstallScript(null, []), 20000)
+      await command('test "$(readlink /etc/resolv.conf)" = /etc/customer-resolver; cmp /etc/resolv.conf /etc/customer-resolver; rm /etc/resolv.conf; mv /etc/customer-resolver /etc/resolv.conf')
+      for (let round = 0; round < 2; round++) {
+        execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })
+        execFileSync('incus', ['start', name], { timeout: 30000 })
+        // Allow late router advertisements, which triggered the old overwrite.
+        await new Promise(resolve => setTimeout(resolve, 45000))
+        await command('test ! -e /run/dhcpcd/pid; test -s /run/dhcpcd/eth0.pid; grep -q "^nameserver " /etc/resolv.conf; timeout 8 nslookup dl-cdn.alpinelinux.org')
+      }
+      assert.equal(await command('stat -c %Y /var/lib/incudal/initialization-ready'), initialization)
+      assert.deepEqual(await instanceSshFingerprints(transport, name), pinnedKeys)
+      await checkSshLogin('11.0.0.99', password, pinnedKeys)
+      console.log('PASS real Alpine Tiny Cloud: duplicate DHCP/DNS repair, two subsequent boots, original credentials retained')
+    }
     if (image === 'debian/14/cloud') {
       const install = () => execWithOutput(transport, name, ['sh', '-c', dedicatedIpv6InstallScript(null, [])], {}, 20000)
       const configured = await install()

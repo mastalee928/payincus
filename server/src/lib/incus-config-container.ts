@@ -257,7 +257,7 @@ function getSetupCommands(osInfo: OsInfo): string[] {
 
   // ================= Alpine =================
   if (osInfo.family === 'alpine') {
-    const essentialPkgs = 'openssh openssh-server-pam bash shadow sed grep dhcpcd util-linux ca-certificates curl iproute2'
+    const essentialPkgs = 'openssh openssh-server-pam bash shadow sed grep dhcpcd openresolv util-linux ca-certificates curl iproute2'
     const installCmd = `apk update && apk add --no-cache ${essentialPkgs}`
     cmds.push(wrapWithNetworkRetry(installCmd))
     cmds.push('/usr/local/bin/incudal-alpine-ssh-security.sh install')
@@ -306,7 +306,8 @@ function getSetupCommands(osInfo: OsInfo): string[] {
     cmds.push(`systemctl enable ${osInfo.sshServiceName} || true`)
   } else {
     cmds.push(`[ -f /etc/init.d/${osInfo.sshServiceName} ] && rc-update add ${osInfo.sshServiceName} default 2>/dev/null || true`)
-    cmds.push('[ -f /etc/init.d/dhcpcd ] && rc-update add dhcpcd default 2>/dev/null || true')
+    // ifupdown owns DHCP for the generated interface. A second global dhcpcd
+    // service races its per-interface client and can empty resolv.conf.
   }
 
   return cmds
