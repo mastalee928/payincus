@@ -110,9 +110,22 @@ if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = btrfs-rebuild; then
   fi
   btrfs subvolume delete "$target"
   mkdir -m 0100 "$target"
+  printf preserve > "$target/owner-data"
+  if incus rebuild native-sysinfo images:alpine/3.24/tinycloud --force; then
+    echo 'Nonempty ordinary directory must not be wiped automatically'; exit 1
+  fi
+  test "$(cat "$target/owner-data")" = preserve
+  rm "$target/owner-data"
   incus rebuild native-sysinfo images:alpine/3.24/tinycloud --force
   incus start native-sysinfo
   timeout -s KILL 10 incus exec native-sysinfo -- cat /etc/os-release
+  incus query /1.0/instances/native-sysinfo > /tmp/identity-rebuild-final.json
+  python3 - <<'PY'
+import json
+b=json.load(open('/tmp/identity-before.json'));a=json.load(open('/tmp/identity-rebuild-final.json'))
+assert a['config']['volatile.uuid']==b['config']['volatile.uuid']
+assert a['config']['limits.memory']=='128MiB'
+PY
   echo 'PASS native Btrfs repeated rebuild and original empty-directory recovery'
 fi
 incus delete --force native-sysinfo
