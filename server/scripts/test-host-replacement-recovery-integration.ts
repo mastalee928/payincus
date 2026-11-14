@@ -51,7 +51,7 @@ async function fixture(legacy = false) {
     architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34, natPublicIp: '192.0.2.3', natBindIp: '10.0.0.3', natPortStart: 1, natPortEnd: 65535,
     portProtocol: 'tcp', portProtocolApplied: 'tcp', portProtocolRevision: 1, portProtocolAppliedRevision: 1,
     agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]), agentId: name } },
-    storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } }
+    storagePools: { create: { name: 'default', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } }
   } }); hostIds.push(host.id)
   const ipv6 = { version: 1, hostId: host.id, instanceName: name, primary: '2603:c020:802a:cc00::3', status: 'pending', error: 'IPV6_HOST_QUARANTINED',
     configured: true, checkedAt: new Date().toISOString(), mappings: [{ publicIp: '2603:c020:802a:cc00::3', privateIp: 'fd00::3', fallbackIp: 'fd00::4', ready: true }] }

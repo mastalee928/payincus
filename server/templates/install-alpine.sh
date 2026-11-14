@@ -78,7 +78,7 @@ install_alpine() {
   grep -Eq "/$branch/community/?$" /etc/apk/repositories || printf '%s/community\n' "$repository" >> /etc/apk/repositories
   timeout 180 apk add --no-cache incus incus-client incus-openrc bash curl ca-certificates \
     openssl python3 iproute2 iptables ip6tables nftables util-linux coreutils shadow-subids \
-    dnsmasq btrfs-progs rsync squashfs-tools tar gzip xz apparmor apparmor-utils lxcfs lxcfs-openrc || exit 75
+    dnsmasq btrfs-progs btrfs-progs-extra lvm2 lvm2-extra device-mapper rsync squashfs-tools tar gzip xz apparmor apparmor-utils lxcfs lxcfs-openrc || exit 75
   command -v aa-exec >/dev/null && aa-exec --help >/dev/null 2>&1 || exit 75
 
   rc-update add cgroups boot
@@ -98,6 +98,8 @@ install_alpine() {
   sysctl -p /etc/sysctl.d/90-incudal-alpine.conf
   modprobe btrfs || true
   grep -qw btrfs /proc/filesystems || fail 'the running kernel has no Btrfs support'
+  modprobe dm_thin_pool || true
+  test -d /sys/module/dm_thin_pool || fail 'the running kernel has no device-mapper thin pool support'
   configure_incus_memory_default
   rc-update add incusd default
   rc-service incusd status >/dev/null 2>&1 || rc-service incusd start

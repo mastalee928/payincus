@@ -85,7 +85,8 @@ const dependencies = `set -eu
 step() { :; }
 timeout() { shift; "$@"; }
 apt-get() { printf '%s\\n' "$*"; [ "\${FAIL_PACKAGE:-0}" != 1 ]; }
-modprobe() { [ "$1" = btrfs ]; }
+modprobe() { [ "$1" = btrfs ] || [ "$1" = dm_thin_pool ]; }
+test() { if [ "$1" = -d ] && [ "$2" = /sys/module/dm_thin_pool ]; then return 0; fi; builtin test "$@"; }
 grep() { [ "$2" = btrfs ] && [ "$3" = /proc/filesystems ]; }
 install_zfs_prebuilt() { echo UNEXPECTED_ZFS; exit 98; }
 install_zfs_dkms() { echo UNEXPECTED_ZFS; exit 98; }
@@ -97,6 +98,7 @@ writeFileSync(dependencyPath, dependencies)
 const dependencyResult = spawnSync(bash, [dependencyPath], { encoding: 'utf8', timeout: 10000, input: '', windowsHide: true })
 assert.equal(dependencyResult.status, 0, dependencyResult.stdout + dependencyResult.stderr)
 assert.match(dependencyResult.stdout, /btrfs-progs/)
+assert.match(dependencyResult.stdout, /lvm2 thin-provisioning-tools/)
 assert.doesNotMatch(dependencyResult.stdout, /UNEXPECTED_ZFS/)
 console.log('PASS dedicated Btrfs enrollment skips unrelated ZFS compilation/kernel replacement')
 const dependencyFailure = spawnSync(bash, [dependencyPath], { encoding: 'utf8', timeout: 10000, input: '', windowsHide: true, env: { ...process.env, FAIL_PACKAGE: '1' } })

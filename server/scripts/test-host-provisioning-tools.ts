@@ -7,6 +7,9 @@ const now = Date.now()
 const report = { version: 1, ready: true, checkedAt: new Date(now - 14000).toISOString() }
 const accepted = acceptHostProvisioningStatus(report, now - 14000, now)!
 assert.equal(accepted.ready, true, 'signed host clock skew does not flap stock')
+assert.equal(acceptHostProvisioningStatus({...report,diskTools:true},now-14000,now)?.diskTools,true)
+assert.equal(acceptHostProvisioningStatus({...report,diskTools:'true'},now-14000,now)?.diskTools,undefined)
+assert.equal(acceptHostProvisioningStatus({...report,ready:false,diskTools:true},now-14000,now)?.diskTools,undefined)
 const agent = { enabled: true, lastSeenAt: new Date(now), capabilities: [HOST_PROVISIONING_CAPABILITY], lastReport: { hostProvisioningStatus: accepted } }
 assert.equal(hostProvisioningToolsReady(agent, now), true)
 for (const input of [null, [], {}, { ...report, ready: 'true' }, { ...report, checkedAt: 'bad' }]) assert.equal(acceptHostProvisioningStatus(input, now, now), null)

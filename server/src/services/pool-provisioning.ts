@@ -19,6 +19,7 @@ import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { assertCustomerProfiles } from '../lib/incus/customer-isolation.js'
 import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 import { hostProvisioningToolsReadyWhere } from '../lib/host-provisioning-tools.js'
+import { isolatedPoolConfiguration } from '../lib/pool-disk-isolation.js'
 
 const active = new Map<number, AbortController>()
 export class PoolProvisionOwnershipError extends Error {}
@@ -96,6 +97,13 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
       if (method === 'POST' && path === '/1.0/instances' && instance.dedicatedIpv4 && !await prisma.hostAgent.count({
         where: { hostId: host.id, ...hostProvisioningToolsReadyWhere() }
       })) throw new Error('HOST_PROVISIONING_TOOLS_PENDING')
+      if (method === 'POST' && path === '/1.0/instances' && instance.dedicatedIpv4) {
+        const devices = (body as { devices?: Record<string,{type?:string;path?:string;pool?:string}> } | null)?.devices
+        const roots = Object.values(devices || {}).filter(d => d.type === 'disk' && d.path === '/')
+        if (roots.length !== 1 || !roots[0].pool) throw Error('POOL_DISK_ISOLATION_PENDING')
+        const pool = await target.request<{driver:string;config:Record<string,string>}>('GET', `/1.0/storage-pools/${encodeURIComponent(roots[0].pool)}`, null, 5000)
+        if (!isolatedPoolConfiguration(pool)) throw Error('POOL_DISK_ISOLATION_PENDING')
+      }
       return target.request<T>(method, path, body, timeout, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, conditions)
     }
     const value = Reflect.get(target, property)

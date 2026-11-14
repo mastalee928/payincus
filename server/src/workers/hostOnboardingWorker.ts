@@ -27,6 +27,8 @@ import { finishSecureOnboarding } from '../services/onboarding-security-gate.js'
 import { prepareAutomaticHostMaintenance, resumeAutomaticHostMaintenance } from '../services/host-security-maintenance.js'
 import { assertOnboardingAuthority, assertOnboardingLease } from '../services/onboarding-authority.js'
 import { NATIVE_VALIDATED_MAINTENANCE_RECIPES } from '../lib/host-maintenance-plan.js'
+import { POOL_DISK_NAME, POOL_DISK_DRIVER } from '../lib/pool-disk-isolation.js'
+import { ensureIsolatedPool } from '../lib/pool-disk-isolation-remote.js'
 export { assertOnboardingAuthority } from '../services/onboarding-authority.js'
 
 let timer: ReturnType<typeof setInterval> | undefined
@@ -237,7 +239,7 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
             resourceSnapshot: resources as unknown as Prisma.InputJsonObject, architecture: resources!.probe.architecture,
             natPublicIp: node.publicIp, natBindIp: bindIp, ipAddress: node.publicIp, natPortStart: 1, natPortEnd: 65535,
             managementSshHost: gateway.managementIp, managementSshPort: node.sshPort, managementSshUser: 'root',
-            ...panelCertificatePaths(), storageDriver: 'btrfs', storageType: 'loop', storageSize: resources!.storageSize,
+            ...panelCertificatePaths(), storageDriver: POOL_DISK_DRIVER, storageType: 'loop', storageSize: resources!.storageSize,
             ipv6Mode: 3, enableResourcePool: false, instanceType: 'container', cpuAllowanceMax: resources!.cpuAllowanceMax, memoryMax: resources!.memoryMax,
             installToken: randomUUID(), installTokenExpire: new Date(Date.now() + 24 * 60 * 60 * 1000), certDownloadExpire: new Date(Date.now() + 60 * 60 * 1000)
           } })
@@ -289,14 +291,9 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
       const info = await client.connect() as { environment?: { kernel_architecture?: string } }
       const architecture = verifyOnboardingArchitecture(info.environment?.kernel_architecture, resources.probe.architecture)
       await client.getResources()
-      const poolName = 'payincus-pool'
-      const pools = await client.request<string[]>('GET', '/1.0/storage-pools')
-      if (!pools.includes(`/1.0/storage-pools/${poolName}`)) {
-        await assertOnboardingLease(node)
-        await client.request('POST', '/1.0/storage-pools', { name: poolName, driver: 'btrfs', config: { size: `${host.storageSize}GiB` } })
-      }
-      const pool = await client.request<{ driver: string; config: Record<string, string> }>('GET', `/1.0/storage-pools/${poolName}`)
-      if (pool.driver !== 'btrfs') throw new OnboardingError('RESOURCE_DISK_INSUFFICIENT')
+      const poolName = POOL_DISK_NAME
+      const registered = await prisma.storagePool.findUnique({ where: { hostId_name: { hostId: host.id, name: poolName } } })
+      const pool = await ensureIsolatedPool(client, host.storageSize, registered?.driver === 'btrfs', async () => { await assertOnboardingLease(node) })
       await prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR UPDATE`
         await tx.$queryRaw`SELECT id FROM host_onboarding_nodes WHERE id = ${node.id} FOR UPDATE`
@@ -308,7 +305,7 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
         await tx.host.update({ where: { id: host.id }, data: {
           ...panelCertificatePaths(),
           status: 'online', isInstalled: true, installPending: false, installToken: null, installTokenExpire: null, certDownloadExpire: null,
-          architecture
+          architecture, storageDriver: POOL_DISK_DRIVER
         } })
       })
     } finally { await client.close() }

@@ -32,6 +32,7 @@ const server=createServer({key:await readFile(keyPath),cert:certificate,ca:certi
   try {
     assert.ok((req.socket as any).authorized);const path=req.url||''
     if(path==='/1.0')return ok({api_version:'1.0'})
+    if(path==='/1.0/storage-pools/fixture'||path==='/1.0/storage-pools/default')return ok({name:path.split('/').at(-1),driver:'lvm',config:{'volume.block.filesystem':'btrfs'}})
     actions.push(`${req.method} ${path}`)
     if(path==='/1.0/instances'&&req.method==='POST') {
       let body='';for await(const chunk of req)body+=chunk
@@ -71,7 +72,7 @@ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve))
 const user=await prisma.user.create({data:{username:tag,passwordHash:'fixture',balance:88}})
 const host=await prisma.host.create({data:{userId:user.id,name:tag,singleTenant:true,resourcePreset:'E2',customerDiskGiB:30,
   cpuAllowanceMax:200,memoryMax:768,storageSize:38,architecture:'x86_64',isInstalled:true,status:'online',natPublicIp:'192.0.2.20',natBindIp:'10.0.0.20',natPortStart:20000,natPortEnd:20999,
-  storagePools:{create:{name:'fixture',driver:'btrfs',purpose:'instance_data'}},
+  storagePools:{create:{name:'fixture',driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' }}},
   agent:{create:{...protectedAgentFixture()}},
   url:`https://127.0.0.1:${(server.address() as {port:number}).port}`,certPath,keyPath,serverCertificate:certificate,serverFingerprint:new X509Certificate(certificate).fingerprint256}})
 let failure:unknown

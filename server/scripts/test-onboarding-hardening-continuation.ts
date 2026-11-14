@@ -85,7 +85,7 @@ async function create(architecture: 'x86_64' | 'aarch64') {
     onboardingNode: { create: { batchId: batch.id, name: prefix + hosts.length, publicIp, managementIp: '127.0.0.1', sshPort: 22,
       sshFingerprint: 'SHA256:fixture-original', nodePublicKey: 'A'.repeat(43) + '=', status: 'queued', step: 'hardening', credentialsExpireAt: new Date(0) } }
   }, include: { onboardingNode: { include: { batch: true } } } }); hosts.push(host.id)
-  await prisma.storagePool.create({ data: { hostId: host.id, name: 'fixture', driver: 'btrfs', purpose: 'instance_data' } })
+  await prisma.storagePool.create({ data: { hostId: host.id, name: 'fixture', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } })
   await prisma.hostAgent.create({ data: { hostId: host.id, ...protectedAgentFixture() } })
   const bootId = randomUUID()
   remotes.set(host.id, { architecture, bootId, originalBoot: bootId, phase: 'preparing', active: false, reboots: 0, commands: [], requests: [], losePrepare: false, loseReboot: false })

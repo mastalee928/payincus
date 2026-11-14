@@ -23,6 +23,7 @@ import { acceptGuestProtectionStatus } from '../src/lib/guest-network-protection
 import { acceptHostProvisioningStatus } from '../src/lib/host-provisioning-tools.js'
 import { instanceSshFingerprints, dedicatedIpv6InstallScript } from '../src/lib/incus/dedicated-ipv6.js'
 import { reconcilePoolInstanceDns } from '../src/services/pool-resource-reconciliation.js'
+import { prepareEmptyPoolDisk } from '../src/services/pool-disk-preparation.js'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
@@ -37,14 +38,14 @@ const host = await prisma.host.create({ data: { userId: user.id, name: 'native-i
   certPath: process.env.INCUDAL_PROVISIONING_CERT!, keyPath: process.env.INCUDAL_PROVISIONING_KEY!,
   serverCertificate: cert, serverFingerprint: new X509Certificate(cert).fingerprint256,
   singleTenant: true, status: 'online', isInstalled: true, instanceType: 'container', architecture: process.arch === 'arm64' ? 'aarch64' : 'x86_64',
-  cpuAllowanceMax: 100, memoryMax: 1024, customerDiskGiB: 4,
+  cpuAllowanceMax: 100, memoryMax: 1024, customerDiskGiB: 4, storageSize: 12,
   natPublicIp: '11.0.0.99', natBindIp: '11.0.0.99', natPortStart: 1, natPortEnd: 65535,
   portProtocol: 'tcp_udp', portProtocolRevision: 1, portProtocolApplied: 'tcp_udp', portProtocolAppliedRevision: 1,
   onboardingNode: { create: { batchId: batch.id, name: 'native-pool-node', publicIp: '11.0.0.99', managementIp: '10.253.240.2',
     sshPort: 22, sshFingerprint: 'SHA256:' + createHash('sha256').update(Buffer.from(readFileSync('/etc/ssh/ssh_host_ed25519_key.pub', 'utf8').split(/\s+/)[1], 'base64')).digest('base64').replace(/=+$/, ''),
     status: 'succeeded', step: 'done', credentialsExpireAt: new Date(0) } },
   agent: { create: { agentId: randomUUID(), secretHash: 'unused-native', secretEncrypted: 'unused-native', enabled: true } },
-  storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } }
+  storagePools: { create: { name: 'payincus-pool', driver: 'btrfs', purpose: 'instance_data' } }
 } })
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let refreshing = false
@@ -89,6 +90,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
   refreshTimer = setInterval(() => { void updateRealReceipts().catch(() => undefined) }, 1000)
+  assert.equal(await prepareEmptyPoolDisk(host.id),true,'old empty pool converts automatically on both architectures')
   const node = await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { hostId: host.id } })
   let addressVerifications = 0
   const ipDependencies = {
@@ -133,7 +135,7 @@ try {
     }, 30000)
     try {
     await createInstanceAsync(instance.id, (await getHostById(host.id))!, { name, image: `images:${image}`, cpu: 100, memory: 1024,
-      disk: 4096, cloudInitConfig: generated.configPayload, networkMode: 'nat', ipv4Address: ip, autoRemotePort: false }, user.id,
+      disk: 4096, storagePool: 'payincus-pool', cloudInitConfig: generated.configPayload, networkMode: 'nat', ipv4Address: ip, autoRemotePort: false }, user.id,
     { cpu: 100, memory: 1024, disk: 4096 })
     } catch (error) {
       try {
@@ -171,6 +173,10 @@ try {
     execFileSync('incus',['exec',name,'--','env','INCUDAL_GUEST_SYSINFO_TEST=1','/root/incudal-resource-tests','-test.run','^TestGuestSysinfoLimit$','-test.v'],{stdio:'inherit',timeout:15000})
     const resourceMemory = await execWithOutput(transport, name, ['sh', '-c', 'head -n 1 /proc/meminfo; cat /sys/fs/cgroup/memory.max'], {}, 5000)
     assert.equal((resourceMemory.metadata as {return?:number}).return,0)
+    const disk = await execWithOutput(transport, name, ['/bin/sh', '-c', 'stat -f -c "%S %b" /'], {}, 5000)
+    assert.equal((disk.metadata as {return?:number}).return,0)
+    const [blockSize, blocks] = disk.stdout.trim().split(/\s+/).map(BigInt)
+    assert.equal(blockSize * blocks, 4n * 1024n ** 3n, 'guest sees its 4GiB filesystem, not the 12GiB pool')
     assert.match(resourceMemory.stdout,/^MemTotal:\s+1048576 kB/m,'LXCFS must show the 1024 MiB guest rather than host physical memory')
     assert.match(resourceMemory.stdout,/\b1073741824\b/,'cgroup hard limit must be exactly 1024 MiB')
     const scanned = await execWithOutput(transport, name, ['sh', '-c',

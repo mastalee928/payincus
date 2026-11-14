@@ -53,7 +53,7 @@ try {
       onboardingNode: { create: { batchId: batch.id, name: prefix + resourcePreset, publicIp,
         managementIp: '127.0.0.1', sshPort: 22, sshFingerprint: 'SHA256:fixture', nodePublicKey: 'A'.repeat(43) + '=', status: 'succeeded', credentialsExpireAt: new Date(0) } }
     }, include: { onboardingNode: { include: { batch: true } } } }); hostIds.push(host.id)
-    await prisma.storagePool.create({ data: { hostId: host.id, name: 'fixture', driver: 'btrfs', purpose: 'instance_data' } })
+    await prisma.storagePool.create({ data: { hostId: host.id, name: 'fixture', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } })
     await prisma.hostAgent.create({ data: { hostId: host.id, ...protectedAgentFixture() } })
     const bootId = randomUUID(), requestId = randomUUID(), expiredAt = Date.now() - 4 * 60000
     const maintenance = { revision: 'host-maintenance-v1', requestId, identityHash: hardeningIdentityHash(host), bootId, prepareHash: 'b'.repeat(64),

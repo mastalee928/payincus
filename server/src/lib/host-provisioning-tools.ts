@@ -8,6 +8,7 @@ export function acceptHostProvisioningStatus(v:unknown,signedAt:number,receivedA
  const age=signedAt-at,valid=Number.isSafeInteger(signedAt)&&Math.abs(receivedAt-signedAt)<=60000&&age>=-5000&&age<HOST_PROVISIONING_MAX_AGE_MS
  return {version:1,ready:r.ready&&valid,checkedAt:new Date(receivedAt-Math.max(0,Number.isFinite(age)?age:0)).toISOString(),
   ...(valid&&['needed','pending','verified'].includes(String(r.incusCompat))&&typeof r.compatHash==='string'&&/^[a-f0-9]{64}$/.test(r.compatHash)?{incusCompat:r.incusCompat,compatHash:r.compatHash,...(typeof r.compatRequest==='string'&&/^[a-f0-9-]{36}$/.test(r.compatRequest)?{compatRequest:r.compatRequest}:{})}:{}),
+  ...(valid&&r.ready&&r.diskTools===true?{diskTools:true}:{}),
   ...(!r.ready||!valid?{error:valid?'HOST_PROVISIONING_TOOLS_PENDING':'HOST_PROVISIONING_CLOCK_INVALID'}:{})}
 }
 export function hostProvisioningToolsReadyWhere(now=new Date()):Prisma.HostAgentWhereInput {

@@ -1,6 +1,6 @@
 {
   "name": "payincus",
-  "version": "1.8.10",
+  "version": "1.8.11",
   "description": "PayIncus commercial Incus platform",
   "type": "module",
   "private": true,
@@ -50,6 +50,7 @@
     "pnpm --filter server test:security-hardening-guards",
     "pnpm --filter server test:onboarding-bootstrap-guards",
     "pnpm --filter server test:host-provisioning-tools",
+    "pnpm --filter server test:pool-disk-isolation",
     "pnpm --filter server test:customer-isolation",
     "pnpm --filter server test:auth-identity-state",
     "pnpm --filter server test:recovery-page-state",

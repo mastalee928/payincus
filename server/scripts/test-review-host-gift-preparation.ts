@@ -95,7 +95,7 @@ try {
       ipv6ParentInterface: 'eth0' } })
     const pkg = await prisma.package.create({ data: { userId: owner.id, name: host.name, cpuMax: 100, memoryMax: 1024, diskMax: 2048, portLimit: 6, networkMode } })
     const plan = await prisma.packagePlan.create({ data: { packageId: pkg.id, name: host.name, cpu: 50, memory: 256, disk: 1024, trafficLimit: 1000000n, price: 1000, portLimit: 3, snapshotLimit: 0, backupLimit: 0, siteLimit: 0 } })
-    await prisma.storagePool.create({ data: { hostId: host.id, name: 'test', driver: 'btrfs', purpose: 'instance_data' } })
+    await prisma.storagePool.create({ data: { hostId: host.id, name: 'test', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } })
     await prisma.publicIpv4Address.create({ data: { hostId: host.id, address: '192.0.2.20', prefixLength: 24, gateway: '192.0.2.1' } })
     if (scenario === 'nat_empty') await prisma.natIpv4Reservation.createMany({ data: listNatIpv4Pool().map(address => ({ hostId: host.id, address, expiresAt: new Date(Date.now() + 3600000) })) })
     // Database-side faults execute on the real route's transaction boundaries.

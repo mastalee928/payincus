@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 2026-11-14磁盘可见范围新工作：owner要求df/statfs与SSH监控只见当前实例磁盘，覆盖现有/未来宿主、新建/重装/回池；随后明确现有用户实例均可删除。当前线上仅只读#35，确认30GiB qgroup但statfs=34GiB。独立本地Alpine6.18/Incus7.0.1实验：LVM thin+Btrfs每卷，5GiB池内1GiB客机df/statfs精确1GiB，文件/快照/UUID保持，创建时间随存储迁移改变；回退缺btrfstune后补工具，未进行生产迁移/删除。因owner允许清存量，不再要求客户数据迁移。分支codex/isolated-instance-disks候选1.8.11/Agent1.0.15：新接入默认LVM+Btrfs，旧空池经原身份/DB锁/0实例/0任务/仅缓存卷核验再重建同名池，断线/半初始化自动续接；Agent补工具和kernel thin支持回执，销售/选池/创建前复核独立文件系统。初轮types/隔离状态守卫/真实PG+mTLS转换与池库存/计费回归通过；双架构原生改为旧空Btrfs→产品转换→7镜像创建/真实statfs，尚待CI。现有用户实例未删，主控仍v1.8.10；新方案未热更新或正式发行。
+
+- 2026-11-14 19:31北京时间只读复核owner磁盘截图：实例#35/u2-hfkdlhtm（host38）当前主控v1.8.10，DB disk=30720MiB、Incus root size=30720MiB，真实Btrfs子卷ID300/qgroup0/300 max_referenced=32212254720B（30GiB），无quota rescan。客机与宿主df/statfs均返回36507222016B（34GiB）整池，已用5078876160B、available31252217856B；子卷实际referenced515162112B。截图的df Size=34G、Avail=30G，30G为剩余整池空间，不是配额或总量。之前修复实际30GiB限制，但未实现让客机df/statfs及外部SSH资源工具显示实例配额；不得继续将“资源全部修好”解释为外部磁盘显示已是30G。本次只读取证，未写客户磁盘/改配额/重启；原始无凭据证据在仓库外hardening29/compat-disk35-quota-20261114.json。
+
 - 最终收尾：六公开资产与两实际正式tar逐文件独立核验全部通过（原pin签名、来源92829310、243迁移、DNS/SSH/重装/心跳修复、用户无改价入口、无镜像图库随包）；本轮上线目标完成。正式v1.8.10/Agent1.0.14已公开；主控已候选同源码实测，客户#27/#41原PID/boot/密码/文件/UUID/价格/账期及SSH/IPv6/768MiB保持，两架构各24镜像通过，34在线/BBR、23可售、零在途与图库保持。完整OSS新B灾备等长期目标仍独立未验，不由本次发行代替。
 
 - 2026-11-14 07:18:48 UTC [v1.8.10](https://github.com/mastalee928/payincus/releases/tag/v1.8.10)已正式公开并为latest，Agent v1.0.14已公开。六公开资产重新下载后size/API digest/sha/OTA逐项核过，两正式tar原签名/source/243迁移/本批修复独立核验收尾；公开包就是正式run43568813210原包，稳定tag指向92829310未移动。后续发版skip修复与台账f5dec0b2已推main/原分支，产品代码未改。完整镜像两架构24/24、主控候选更新49与真实客户/库存/账务验收前文已闭环；目标主控仍preview-9282931，同产品源码已运行，不宣称已正式包OTA。

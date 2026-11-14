@@ -25,7 +25,7 @@ const host = await prisma.host.create({data:{userId:admin.id,name:tag,url:'https
   natPortStart:1,natPortEnd:65535,
   cpuAllowanceMax:200,memoryMax:768,storageSize:34,cpuUsed:200,memoryUsed:768,diskUsed:30720,
   portProtocol:'tcp',portProtocolRevision:1,portProtocolApplied:'tcp',portProtocolAppliedRevision:1,
-  agent:{create:protectedAgentFixture(['ingress-port-protocol-v1'])},storagePools:{create:{name:'default',driver:'dir',purpose:'instance_data'}}}})
+  agent:{create:protectedAgentFixture(['ingress-port-protocol-v1'])},storagePools:{create:{name:'default',driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' }}}}})
 const old = await prisma.instance.create({data:{hostId:host.id,userId:oldBuyer.id,name:tag,incusId:tag,image:image.remoteAlias,
   status:'stopped',cpu:200,memory:768,disk:30720,packageId:plan.packageId,packagePlanId:plan.id,billingPrice:10,billingCycle:1,
   expiresAt:new Date(Date.now()+86400000),dedicatedIpv4:true,dedicatedNetworkReady:true,poolPriceId:price.id}})

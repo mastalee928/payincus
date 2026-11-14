@@ -30,7 +30,7 @@ async function makeHost(extra: Record<string, unknown> = {}) {
     natPublicIp: `192.0.2.${sequence}`, natPortStart: 20000, natPortEnd: 30000,
     agent: { create: protectedAgentFixture() }, ...extra
   } })
-  await prisma.storagePool.create({ data: { hostId: host.id, name: 'test', driver: 'btrfs', purpose: 'instance_data' } })
+  await prisma.storagePool.create({ data: { hostId: host.id, name: 'test', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } })
   return host
 }
 const expiresAt = new Date('2030-01-01T00:00:00Z')

@@ -27,7 +27,7 @@ async function makeHost(poolFaulted = true) {
     natPublicIp: `192.0.2.${id}`, natBindIp: `10.0.0.${id}`, natPortStart: 20000, natPortEnd: 30000,
     portProtocol: 'tcp_udp', portProtocolRevision: 1, portProtocolApplied: 'tcp_udp', portProtocolAppliedRevision: 1,
     agent: { create: { agentId: `${prefix}-${id}`, secretHash: 'unused', secretEncrypted: 'unused', lastSeenAt: new Date(), capabilities: [PORT_PROTOCOL_CAPABILITY] } },
-    storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } }
+    storagePools: { create: { name: 'default', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } }
   } })
 }
 const app = Fastify()

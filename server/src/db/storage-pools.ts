@@ -6,6 +6,7 @@ import { prisma } from './prisma.js'
 import { Prisma, type StoragePurpose } from '@prisma/client'
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
 import { normalizeLogContentForStorage } from '../lib/log-localization.js'
+import { isolatedSystemPoolWhere } from '../lib/pool-disk-isolation.js'
 
 const DEFAULT_STORAGE_POOL_NAME = 'default'
 type StoragePoolQueryClient = typeof prisma | Prisma.TransactionClient
@@ -175,6 +176,12 @@ export async function resolveStoragePoolForNewInstance(
   } = {}
 ): Promise<string | null> {
   const { packageId, client = prisma } = options
+
+  const host = await client.host.findUnique({ where: { id: hostId }, select: { singleTenant: true } })
+  if (host?.singleTenant) {
+    const isolated = await client.storagePool.findFirst({ where: { hostId, ...isolatedSystemPoolWhere }, orderBy: { createdAt: 'asc' } })
+    return isolated?.name ?? null
+  }
 
   if (packageId) {
     const configuredPool = await getPackageHostStoragePool(packageId, hostId, client)

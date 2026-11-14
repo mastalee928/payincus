@@ -124,7 +124,7 @@ printf '%s' installing > install.phase
 set +e
 # The runner owns the gate while waiting. Services started by the installer
 # must not inherit it and keep onboarding permanently busy after completion.
-INCUDAL_ONBOARDING_STORAGE=btrfs timeout 2400 bash ./install.sh --mode nat --port 8443${defaults.osId === 'alpine' ? '' : ' --yes'} </dev/null 8>&-
+INCUDAL_ONBOARDING_STORAGE=lvm timeout 2400 bash ./install.sh --mode nat --port 8443${defaults.osId === 'alpine' ? '' : ' --yes'} </dev/null 8>&-
 code=$?
 set -e
 printf '%s' "$code" > install.exit.tmp

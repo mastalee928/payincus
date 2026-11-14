@@ -33,7 +33,7 @@ async function makeHost() {
     natPublicIp: `8.8.8.${seq}`, natBindIp: '10.0.0.13', natPortStart: 1, natPortEnd: 65535,
     serverCertificate: 'isolated-fake-certificate', serverFingerprint: 'isolated-fake-pin', managementSshHost: `10.253.240.${seq + 1}`,
     portProtocol: 'tcp', portProtocolApplied: 'tcp', portProtocolRevision: 1, portProtocolAppliedRevision: 1,
-    storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } },
+    storagePools: { create: { name: 'default', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } },
     agent: { create: { ...protectedAgentFixture(['ingress-port-protocol-v1']) } },
     onboardingNode: { create: { batchId, name: `${prefix}-${seq}`, publicIp: `8.8.8.${seq}`, managementIp: `10.253.240.${seq + 1}`,
       sshPort: 2200, sshFingerprint: 'SHA256:host-fixture', status: 'succeeded', credentialsExpireAt: new Date(0) } }

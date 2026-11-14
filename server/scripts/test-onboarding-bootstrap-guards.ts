@@ -47,6 +47,7 @@ assert.doesNotMatch(generated, /--allow-untrusted|--allow-unauthenticated|curl\s
 for (const osId of ['debian', 'ubuntu', 'alpine']) {
   const script = installerStartScript(id, 1, 'https://panel.example/api/hosts/install.sh/fixture', { storageSize: 34, osId })
   assert.ok(script.includes('bash ./install.sh --mode nat --port 8443' + (osId === 'alpine' ? ' </dev/null' : ' --yes </dev/null')))
+  assert.ok(script.includes('INCUDAL_ONBOARDING_STORAGE=lvm'))
 }
 const directory = mkdtempSync(join(tmpdir(), 'onboarding-bootstrap-'))
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash'

@@ -1305,13 +1305,15 @@ install_deps() {
     step "步骤 [2/5]  安装系统依赖..."
 
     export DEBIAN_FRONTEND=noninteractive
-    # The one-host/one-customer enrollment already selects Btrfs explicitly.
+    # Pool enrollment uses an independent filesystem on each LVM thin volume.
     # Do not compile ZFS or offer a kernel switch on that noninteractive path.
-    if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs ]]; then
+    if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs || "${INCUDAL_ONBOARDING_STORAGE:-}" == lvm ]]; then
         timeout 120 apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update -qq || return 75
-        timeout 180 apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y -qq curl gpg btrfs-progs || return 75
+        timeout 180 apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y -qq curl gpg btrfs-progs lvm2 thin-provisioning-tools || return 75
         modprobe btrfs || true
         grep -qw btrfs /proc/filesystems || return 1
+        modprobe dm_thin_pool || true
+        test -d /sys/module/dm_thin_pool || return 1
         return 0
     fi
     apt-get update -qq 2>/dev/null
@@ -1760,7 +1762,7 @@ install_incus() {
 
     # Only package preparation may request a fresh automatic attempt. Never
     # classify Incus initialization, trust or Agent failures as replay-safe.
-    if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs ]]; then
+    if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs || "${INCUDAL_ONBOARDING_STORAGE:-}" == lvm ]]; then
         install -d -m 0755 /etc/apt/keyrings
         local key_file
         key_file=$(mktemp /etc/apt/keyrings/.incudal-zabbly.XXXXXX)
@@ -3469,7 +3471,7 @@ main() {
     local dependency_result=0
     install_deps || dependency_result=$?
     if [[ "$dependency_result" -ne 0 ]]; then
-        if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs ]]; then exit "$dependency_result"; fi
+        if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs || "${INCUDAL_ONBOARDING_STORAGE:-}" == lvm ]]; then exit "$dependency_result"; fi
         warn "安装已中断，返回主菜单..."
         echo ""
         local restart_script=""

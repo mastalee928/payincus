@@ -119,6 +119,9 @@ func check(ctx context.Context) error {
 		if n == "unsquashfs" {
 			flag = "-version"
 		}
+		if n == "btrfstune" {
+			flag = "--version"
+		}
 		out, e := run(ctx, n, flag)
 		var exit *exec.ExitError
 		if n == "unsquashfs" && errors.As(e, &exit) && exit.ExitCode() == 1 && regexp.MustCompile(`(?m)^unsquashfs version [0-9]+\.[0-9]+`).Match(out) {
@@ -126,6 +129,17 @@ func check(ctx context.Context) error {
 		}
 		if e != nil {
 			return fmt.Errorf("host tool %s execution failed", n)
+		}
+	}
+	return nil
+}
+
+func ensureDiskSupport(ctx context.Context) error {
+	for _, module := range []string{"btrfs", "dm_thin_pool"} {
+		if _, err := os.Stat("/sys/module/" + module); err != nil {
+			if _, err = run(ctx, "modprobe", module); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -177,6 +191,9 @@ func safePlan(output string, alpine bool) error {
 		return fmt.Errorf("package removal refused")
 	}
 	allowed := map[string]bool{"apparmor": true, "apparmor-utils": true, "libapparmor": true, "py3-apparmor": true, "py3-libapparmor": true, "perl": true, "tar": true, "gzip": true, "xz": true, "xz-utils": true, "squashfs-tools": true, "rsync": true, "lxcfs": true, "lxcfs-openrc": true, "util-linux": true, "util-linux-misc": true}
+	for _, name := range []string{"lvm2", "lvm2-extra", "device-mapper", "thin-provisioning-tools", "btrfs-progs", "btrfs-progs-extra"} {
+		allowed[name] = true
+	}
 	if alpine {
 		for _, m := range apkChange.FindAllStringSubmatch(output, -1) {
 			if m[1] != "Installing" && !allowed[m[2]] {

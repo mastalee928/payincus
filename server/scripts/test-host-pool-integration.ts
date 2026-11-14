@@ -36,7 +36,7 @@ async function host(diskGiB = 30, extra: Record<string, unknown> = {}) {
     singleTenant: true, machineGroupId: group.id, regionGroupId: region.id, resourcePreset: 'E2', customerDiskGiB: diskGiB,
     status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key', architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: diskGiB + 8,
     natPublicIp: `192.0.2.${hostSequence}`, natPortStart: 20000, natPortEnd: 30000, agent: { create: protectedAgentFixture() }, ...extra } })
-  await prisma.storagePool.create({ data: { hostId: machine.id, name: 'test', driver: 'btrfs', purpose: 'instance_data' } })
+  await prisma.storagePool.create({ data: { hostId: machine.id, name: 'test', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } })
   return machine
 }
 const instanceData = (hostId: number, suffix: string) => ({ hostId, userId: buyer.id, name: `${prefix}-${suffix}`, incusId: `${prefix}-${suffix}`, image: systemImage.remoteAlias, cpu: 200, memory: 768, disk: 30 * 1024 })

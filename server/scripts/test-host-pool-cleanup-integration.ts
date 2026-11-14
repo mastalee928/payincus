@@ -75,7 +75,7 @@ async function fixture() {
     cpuUsed: 200, memoryUsed: 768, diskUsed: 30720, natPortStart: 20000, natPortEnd: 30000,
     portProtocol: 'tcp', portProtocolRevision: 1, portProtocolApplied: 'tcp', portProtocolAppliedRevision: 1,
     agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]) } },
-    storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } } } })
+    storagePools: { create: { name: 'default', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } } } })
   currentHost = host.id
   remote = [{ name, status: 'Running', created_at: '2020-01-01T00:00:00Z', project: 'default', config: { 'volatile.uuid': randomUUID() } }]
   volumes = [{ name, type: 'container' }, { name: `${name}/saved`, type: 'container' }]

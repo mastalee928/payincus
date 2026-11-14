@@ -35,7 +35,7 @@ try {
     machineGroupId: group.id, regionGroupId: region.id, resourcePreset: 'E2', customerDiskGiB: 30, status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key',
     architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 38, natPublicIp: '192.0.2.20', natPortStart: 20000, natPortEnd: 30000,
     agent: { create: protectedAgentFixture() } } }); hostIds.push(machine.id)
-  await prisma.storagePool.create({ data: { hostId: machine.id, name: 'fixture', driver: 'btrfs', purpose: 'instance_data' } })
+  await prisma.storagePool.create({ data: { hostId: machine.id, name: 'fixture', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } })
   app.decorate('authenticate', async (request: any) => { request.user = { ...actor } })
   app.decorate('authenticateAdmin', async (request: any) => { request.user = { ...actor } })
   await app.register(routes, { prefix: '/instances' })

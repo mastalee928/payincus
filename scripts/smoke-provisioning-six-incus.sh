@@ -4,14 +4,16 @@ set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted && $EUID -eq 0 ]] || exit 1
 [[ ! -e /opt/incudal && ! -d /var/lib/incus/containers ]] || exit 1
 apt-get update -qq
-apt-get install -y -qq incus openssl openssh-server apparmor squashfs-tools rsync xz-utils wireguard-tools nftables iptables lxcfs
+apt-get install -y -qq incus openssl openssh-server apparmor squashfs-tools rsync xz-utils wireguard-tools nftables iptables lxcfs lvm2 thin-provisioning-tools btrfs-progs
 systemctl start lxcfs
 systemctl start ssh
 test "$(cat /sys/module/apparmor/parameters/enabled)" = Y
 aa-exec --help >/dev/null
 systemctl start incus
 incus admin waitready --timeout=60
-incus storage create default dir
+modprobe dm_thin_pool
+modprobe btrfs
+incus storage create payincus-pool btrfs size=12GiB
 incus network create incusbr0 ipv4.address=10.10.0.1/22 ipv4.nat=true ipv6.address=none
 # The PostgreSQL service container enables Docker's FORWARD drop policy on
 # this disposable runner. Incus nft rules cannot override that iptables chain.

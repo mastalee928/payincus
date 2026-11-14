@@ -349,6 +349,7 @@ jobs:
         if: matrix.shard == 0
         run: |
           pnpm --filter server test:host-pool-integration
+          pnpm --filter server test:pool-disk-preparation
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
           pnpm --filter server test:host-pool-cleanup-integration

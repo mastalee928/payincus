@@ -36,7 +36,7 @@ let hostCount=0
 async function host() { const h=await prisma.host.create({data:{userId:owner.id,name:`${prefix}-${++hostCount}`,url:'https://127.0.0.1:1',singleTenant:true,
   machineGroupId:group.id,regionGroupId:region.id,resourcePreset:'E2',customerDiskGiB:30,status:'online',isInstalled:true,certPath:'fixture.crt',keyPath:'fixture.key',
   architecture:'x86_64',cpuAllowanceMax:200,memoryMax:768,storageSize:38,natPublicIp:`192.0.2.${hostCount}`,natPortStart:20000,natPortEnd:30000,agent:{create:protectedAgentFixture()}}})
-  await prisma.storagePool.create({data:{hostId:h.id,name:'test',driver:'btrfs',purpose:'instance_data'}});return h }
+  await prisma.storagePool.create({data:{hostId:h.id,name:'test',driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' }}});return h }
 const input=(quantity=1)=>({requestId:randomUUID(),source:'direct' as const,items:[{poolPriceId:price.id,quantity,namePrefix:`server-${randomUUID().slice(0,8)}`,image:image.remoteAlias}],expectedTotal:quantity*1100})
 // V1 only constructs a signed URL. Use a public literal address so outbound DNS
 // validation stays real without depending on a made-up hostname or issuing a payment.

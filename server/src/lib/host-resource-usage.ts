@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { SECURITY_HARDENING_REVISION } from './security-hardening.js'
 import { guestProtectionReadyWhere } from './guest-network-protection.js'
 import { hostProvisioningToolsReadyWhere } from './host-provisioning-tools.js'
+import { isolatedSystemPoolWhere } from './pool-disk-isolation.js'
 
 /** Uninspected legacy hosts keep their existing readiness rules. Once a host
  * enters hardening, only a current successful receipt can release new stock. */
@@ -48,7 +49,7 @@ export function dedicatedHostReadyWhere(receiptValidAt = new Date()): Prisma.Hos
   return {
     poolFaulted: false, publicIpSyncBlocked: false, status: 'online', isInstalled: true, installPending: false, instanceType: { in: ['container', 'both'] },
     certPath: { not: null }, keyPath: { not: null },
-    storagePools: { some: { purpose: 'instance_data' } },
+    storagePools: { some: isolatedSystemPoolWhere },
     natPublicIp: { not: null }, natPortStart: { not: null }, natPortEnd: { not: null },
     agent: { is: { AND: [guestProtectionReadyWhere(observedAt),hostProvisioningToolsReadyWhere(observedAt)] } },
     OR: [

@@ -19,6 +19,7 @@ type Status struct {
 	IncusCompat   string `json:"incusCompat,omitempty"`
 	CompatRequest string `json:"compatRequest,omitempty"`
 	CompatHash    string `json:"compatHash,omitempty"`
+	DiskTools     bool   `json:"diskTools,omitempty"`
 }
 type Engine struct {
 	mu           sync.Mutex
@@ -77,8 +78,9 @@ func (e *Engine) Run(ctx context.Context) {
 			if err == nil {
 				err = repairGuestVisibility(c, guests)
 			}
+			diskReady := err == nil && ensureDiskSupport(c) == nil
 			cancel()
-			s := Status{Version: 1, Ready: err == nil, CheckedAt: time.Now().UTC().Format(time.RFC3339), IncusCompat: compatStatus, CompatRequest: compatRequest, CompatHash: compatHashValue}
+			s := Status{Version: 1, Ready: err == nil, DiskTools: diskReady, CheckedAt: time.Now().UTC().Format(time.RFC3339), IncusCompat: compatStatus, CompatRequest: compatRequest, CompatHash: compatHashValue}
 			if err != nil {
 				s.Error = "HOST_PROVISIONING_TOOLS_PENDING"
 			}
@@ -105,14 +107,14 @@ func packagesFor(release string) ([]string, error) {
 	}
 	switch fields["ID"] {
 	case "alpine":
-		return []string{"apparmor-utils", "tar", "gzip", "xz", "squashfs-tools", "rsync", "lxcfs", "lxcfs-openrc", "util-linux"}, nil
+		return []string{"apparmor-utils", "tar", "gzip", "xz", "squashfs-tools", "rsync", "lxcfs", "lxcfs-openrc", "util-linux", "lvm2", "lvm2-extra", "device-mapper", "btrfs-progs", "btrfs-progs-extra"}, nil
 	case "debian", "ubuntu":
-		return []string{"apparmor", "tar", "gzip", "xz-utils", "squashfs-tools", "rsync", "lxcfs", "util-linux"}, nil
+		return []string{"apparmor", "tar", "gzip", "xz-utils", "squashfs-tools", "rsync", "lxcfs", "util-linux", "lvm2", "thin-provisioning-tools", "btrfs-progs"}, nil
 	default:
 		return nil, fmt.Errorf("host distribution unsupported")
 	}
 }
 
-var required = []string{"aa-exec", "tar", "gzip", "xz", "unsquashfs", "rsync", "nsenter"}
+var required = []string{"aa-exec", "tar", "gzip", "xz", "unsquashfs", "rsync", "nsenter", "lvm", "btrfs", "btrfstune", "mkfs.btrfs"}
 
 func releaseFile() (string, error) { b, e := os.ReadFile("/etc/os-release"); return string(b), e }
