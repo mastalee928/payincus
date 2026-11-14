@@ -1,5 +1,15 @@
 # 版本与验证记录
 
+- 本批最终完成：mainCI43626317398终态29/29 success，正式面板43626345677与Agent43626317373全部success，v1.8.11/Agent1.0.15公开及九资产/两个tar已独立完整核验。本次磁盘隔离、缓存余量、#53回池短重试/核验按钮、全镜像操作、原价重卖和#16/#37任务提示恢复已闭环；主控同source候选preview-b463d9e、34在线无隔离，原测试删除及新49–52情况前文保持。长期OSS灾备等未验项不变；owner继续不等于认可LVM的声明已记OWNER。源码稳定tag b463d9e1不移动，后续本提交仅脱敏台账。
+
+- 2026-11-15 02:42北京时间正式资产闭环：v1.8.11六公开资产重新下载/API digest/size/checksum/双OTA一致、latest正确，两公开tar原pin签名/source b463d9e1/243迁移/磁盘缓存回池修复及用户边界再核通过。AMD214592974B SHA7e2493acabfec9580d76f14476e08dd879ad2aa7d829c01ae528f0803cc70717，ARM213806945B SHA9c99e15c930a9612cd0adaa37fb7594d580285ccda7a1d16f479be2f30688cb7。Agent15三公开资产与现场候选完全相同。正式面板/Agent已公开，主控同source候选已实测，不重复OTA或销毁新49–52。main重复CI43626317398仍24/29无失败，最后终态继续核；本批同sourcePR29/29、正式双首装六旧升级及现场已完成，长期OSS灾备等保持独立未验。
+
+- 2026-11-15 02:40北京时间，正式v1.8.11已公开（UTC18:40:19），面板43626345677所有job success，双首装/六旧worker升级回滚均过；Agent1.0.15正式43626317373全部过并于UTC18:29:04公开，三资产API digest/size/候选SHA核过。两正式tar原pin签名/source243迁移及本批模块已独立验，六公开面板资产下载复核中；mainCI43626317398仍23/29无失败，须继续核终态。主控仍同source候选preview-b463d9e，正式包没有再部署。
+
+- 2026-11-15 02:23北京时间正式发行启动：PR15精确快进合并main/source b463d9e1ef2aac9b122f2e0c62e9cc1b83b949b6，v1.8.11注释tag同source已推。面板正式43626345677、Agent main正式43626317373、mainCI43626317398启动；正式公开Release/资产待核，不能以tag已推或预览成功结束。主控候选任务52已全部实测闭环，继续保持preview-b463d9e；新测试49–52正常，不重复销毁。
+
+- 2026-11-15 02:20北京时间本批现场闭环：最终b463d9e1/Agent1.0.15全CI29/29、14compat/Agent/Alpine、双首装/六原v1.8.10worker升级及实际双tar验签通过。主控任务52于17:52:16UTC成功preview-b463d9e，客户4台升级前后boot/UUID/密码/文件/网络/账务保持、库224文件18.66GB保持。原AMD/ARM各24镜像全passed，最终缓存修复各一台专项重装/停启/重启通过，后台旧image LV全清，30GiB和768MiB/4096MiB实际准确。慢dd写入超过测试预算未记通过，双架构替代实际29GiB块分配+末端写/超30GiB拒绝/池未满通过。原45–48改续费价12.34后正常不退款删除，1.5–3秒自动回池；原宿主重卖新49–52价格10+1、override null、旧数据无、30GiB、SSH/IPv6过，总两次购买88元余额999766.88。#16/#37任务提示自然清除，IPv4/IPv6均synced无error。34host在线Agent15/tools/disk ready，无隔离、零在途。全部已确认问题闭环，开始正式合入/发行；[完整证据](docs/release-v1.8.11-validation.md)，正式公开包仍需另核。
+
 - 2026-11-15 01:18北京时间继续精修缓存入口：paid创建guard原先对image LV DELETE也先核尚不存在的新客机，导致创建前缓存清理被挡，仅创建后/后台可清。限定原paid attempt+host check内的精确/1.0/storage-pools/payincus-pool/volumes/image/<sha256>允许先清，池helper仍核原marker/source/空operations，不允许客机删除；PG两架构真实无客机时删cache及错host身份零请求通过，types/build及磁盘/隔离/库存守卫过。e994全CI/预览已绿，但此最终精修需新来源预览与对应现场验收；主控未改变，AMD22/24剩Alma9/CentOS9，ARM24/24已过。
 
 - 2026-11-15 01:04北京时间：e994f835同来源CI43614943837最终29/29 success，Agent43614943974、14compat43614943887、预览43614970825双首装/六原v1.8.10worker升级全部success；两实际tar独立原pin/source/缓存修复内容核验通过。候选e994已暂存未激活，主控仍7b688d55。ARM现场24/24已passed（01:01UTC+8），AMD18/24继续；#45 Alma8丢回执由原1117任务自动完成，真实OS/init/SSH确认。owner新增#16/#37等待自动检测截图实际是IPv4状态行，两宿主在AMD测试中；IPv6已synced，任务结束后自然重查提示要再核。owner说明用户无快照入口，当前快照检查仅Incus底层，不加用户功能。
