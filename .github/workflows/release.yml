@@ -425,7 +425,9 @@ jobs:
       - build
       - fresh-install
       - legacy-upgrade
-    if: startsWith(github.ref, 'refs/tags/v')
+    # The tag path intentionally skips preview-agent. Override GitHub's
+    # transitive skipped dependency status, while requiring every real gate.
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && needs.fresh-install.result == 'success' && needs.legacy-upgrade.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

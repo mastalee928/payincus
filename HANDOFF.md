@@ -1,5 +1,19 @@
 # 版本与验证记录
 
+- v1.8.10正式43568813210全部双包/双首装/六旧worker升级成功，main43568136335也29/29成功；但末尾publish被间接preview-agent skipped隐式success拦住。已修workflow release条件为always()+三个必需needs.result精确success并加守卫。未移动稳定tag、未改正式tar，逐job核成功来源后使用本run原包按同OTA格式创建正式v1.8.10，六资产重新下载核验中。正式amd64 214572932B SHAb8b19d7a94ef5ae057bf25c1b1851656cab2c518989e4f86fd915fa87bc54dec；arm64 213798038B SHAdc154e9a58509f2b7c0a0f31f626ae99e054f457efe26dc6eb71a2a3de0076c0。主控仍同产品候选preview-9282931，不能称已安装正式tar。
+
+- 2026-11-14正式发行开始：PR14已精确快进合并为9282931002563528c22e4079f1c12721a5ff1f11；Agent main43568136313全部成功并于06:54:18UTC正式agent-v1.0.14公开，实际下载amd64 27885720B/04ac54ea0f5494f9727757880836353d53a9a011cca7580bf96f78638ba51b30，arm64 25297048B/5c496c7440334e7007bcb12433938d3c8dee7d1aa17a88704613e3cc441420ff，与现场候选相同，LICENSE也核digest。v1.8.10注释tag已推指向同最终产品，正式面板workflow进行；mainCI43568136335仍尾段，面板Release/最终公开资产未完成。主控已候选通过，不提前称正式OTA完成。
+
+- 2026-11-14 06:46 UTC：最终AMD24/24与ARM24/24已全部passed（分别16+8、12+12，原cd1b passed与928续测来源明确），每项真实重装/OS/Stopped/start/restart/SSH/IPv6/DNS/sysinfo与文件凭据保持。最终34/34host1.0.14/newhash/BBR正常，23可售，0在途任务；退役镜像空，持久图库224文件18.66GB清单原样，backend NRestarts0。#27/#41真实客户原PID/boot/UUID/密码/文件/账期价格/sysinfo768MiB及SSH/IPv6再验全过。#44新购单扣11并全操作通过；余额与所有非新购账单保持。上线前目标已闭环，接下来正式合入/发版并独立核公开资产，当前尚无v1.8.10正式Release。
+
+- 2026-11-14 06:05:49 UTC更新49成功，主控preview-9282931/928293100256，备份/opt/incudal.bak.20261114060335，原worker/seal/DB/支付/双前端/原网关检查通过。34/34宿主1.0.14与新hash仍verified/online，Agent产品未换。#38正常测试API任务833重装Edge已COMPLETED/Running，账期价格保持，实际OS/SSH/sysinfo单验继续。ARM剩余12项续测已启动（新report carried保存前cd1b来源12项），AMD等待#38单验后续剩8项，当前没有正式发行。
+
+- 92829310最终CI43561792581已29/29success，预览43561790220双首装/六旧worker升级全success，12compat/Agent/Alpine与两实际tar原签名/来源/新模块/243迁移核过。开始已授权最终候选热更新（目录owner-candidate-92829310），Agent无产品变化继续1.0.14；先核更新任务终态，再#38 Edge和剩余8/12镜像续测。当前产品变更已全部提交，本地仅后续HANDOFF更新；正式v1.8.10仍未发布。
+
+- 2026-11-14 05:35 UTC续接：92829310最新双Alpine3.24真实Incus前置拒绝→同任务自动重装已success；12compat43561792696、Agent43561792709、Alpine43561792652成功。完整CI43561792581为23/29，六综合分片继续；预览43561790220双包已完成，旧升级/首装尾段待。实际双tar原pin签名/243迁移/SSH和onDispatch及heartbeats新模块同本地build通过，候选已暂存主控/var/cache/incudal-ota/owner-candidate-92829310，**未启动升级**；Agent继续现有/var/lib/incudal-agent-release/cd1b1787的1.0.14，产品二进制无新增变化。候选plan ARM tar213799262B SHA71e4517c679b5c29a6509521662193e4336c64399220336ffa0a0c4082a55816。无在途矩阵；下一步同来源全绿→正常候选热更新→#38 Edge单验→原passed来源明确的剩余AMD8/ARM12续测→最后全池/客户/账务→提交与正式发行。
+
+- 当前接续来源9282931002563528c22e4079f1c12721a5ff1f11（47771ecf补未发送重装/持续SSH错误监听，再补verified心跳不抢维护lane），Agent产品仍原cd1b1787/1.0.14未变。types/build/双PG前置拒绝恢复和心跳并发/完整104任务及敏感授权回归通过；CI43561792581、12compat43561792696、Agent43561792709、Alpine43561792652、无tag预览43561790220进行。前47771ecf预览43560754535已成功但不代最新来源；未激活477候选。目标主控仍preview-cd1b178/更新48，34host1.0.14已verified；05:02前后因SSH二次error后台自动重启一次，后续须确认新源码修复后不再复现。原矩阵已停，AMD16/24、ARM12/24；#38原735已超期核停/无ops后FAILED，需正常新任务选Edge复验，禁止将磁盘仍3.22的旧任务标完成。续测脚本logs/continuation-*-matrix.mjs保留原passed来源、只跑剩余8/12，另准备#38 Edge单项；当前没有矩阵在运行，正式未发行。
+
 - 后续根因复查：incusCompatibilityPermit对已verified的同hash/同request普通心跳仍先取独占maintenance lane，再重复读客机；即使最终仍verified，也会在短窗口让客户POST抛HostMaintenanceError。该路径可解释#38发送前被拒，与无远端重建/旧rootfs证据一致。补精确原hostIdentity+request+hash+verified回执直接返回，真正pending/新代仍走原锁。两架构PG用正在进行的customer mutation验证同回执无冲突，前置重装拒绝恢复与types通过；未声称旧日志保存了当时的异常类型。47771ecf原生双Alpine3.24、12compat、Agent均success，预览/完整CI仍在收尾，尚未新热更新。
 
 - 2026-11-14终轮新增未完成问题：#38任务735切Edge时已改config但磁盘仍Alpine3.22，原UUID/配置hash保持，无rebuildOperation，旧worker吞掉原异常后直接manual_intervention；不能把新image元数据当rootfs已改。补rebuild_prepared与真正HTTP dispatch分界，前置失败同原任务自动重查重试，发出后仍只凭原回执续接，持久脱敏错误。另05:02前后唯一backend因ssh2第二次error（Connection lost before handshake）无人监听退出，systemd恢复PID3062901/NRestarts1；候选无OTA，客户容器未重启。checkSshLogin改持续on error，新增两次错误回归通过。矩阵因此终态AMD16/24、ARM12/24，其余停止；#44新购全验通过。ARM余额差额已明确仅独立新购11元，不是重装收费。新增两修复本地types/相关守卫与双架构PG前置拒绝恢复已过，完整PG/原生新来源仍待，正式未发行。

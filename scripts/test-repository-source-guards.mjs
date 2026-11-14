@@ -25,6 +25,8 @@ for (const path of ['probe-management-gateway.py', 'probe-onboarding-resources.p
 }
 assert.ok(workflow.includes('fresh-install:'), 'publication must depend on fresh installation checks')
 assert.ok(workflow.includes('- fresh-install'), 'Release must wait for fresh installation checks')
+assert.ok(workflow.includes("if: always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && needs.fresh-install.result == 'success' && needs.legacy-upgrade.result == 'success'"),
+  'formal publication must survive the intentionally skipped preview-agent dependency but reject any failed build/install/upgrade gate')
 const installer = read('scripts/install-panel.sh')
 assert.ok(installer.includes('configure_host_pool_gateway'), 'installer must configure the management gateway')
 assert.ok(installer.includes('--configure-host-pool'), 'existing installations need an explicit gateway setup entry')

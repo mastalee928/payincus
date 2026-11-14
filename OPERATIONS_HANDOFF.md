@@ -1,5 +1,7 @@
 # PayIncus 操作手册
 
+2026-11-14 06:05 UTC最新：更新49已success，主控preview-9282931/928293100256，备份/opt/incudal.bak.20261114060335。同来源CI29/29、12compat、Agent/Alpine、双首装/六旧worker升级及两实际签名包全部通过。Agent仍1.0.14，34台新hash已verified；旧一次SSH二次error退出由47771ecf持续监听修复，92829310消除重复verified心跳拿maintenance lane，rebuild_prepared自动续接只针对未发出HTTP。#38新任务833实际Edge/rootfs/SSH/IPv6/sysinfo/UUID/账务通过；06:08以后ARM、06:11以后AMD在续跑剩余镜像，报告明确carry旧passed来源，不在运行矩阵时更新主控或重复操作。新购#44完整通过，仅一次扣11元；真实#27/#41一次授权停启早已完成，后续未重复。正式未发行。
+
 2026-11-14 04:24 UTC当前：最新全池DNS/缺卷重装修复cd1b1787/Agent1.0.14的CI29/29、两TinyCloud真实后台恢复、12compat、双首装和六原worker升级及独立双包核验全通过；已授权原worker候选热更新任务48刚submitted。代码/Agent暂存于/var/cache/incudal-ota/owner-candidate-cd1b1787，Agent目录/var/lib/incudal-agent-release/cd1b1787，仍需核最终成功后34台自动升级/new hash及全池DNS、#38恢复和最终48镜像操作，正式未发行。#27/#41授权停启已完成，不再次执行。
 
 2026-11-14 03:15 UTC最新：主控候选47/preview-70f75c6已热更新成功，CI29/29及34台1.0.13新daemon自动verified全部过；#27/#41已授权停启结果保持。#38任务666在配置PUT阶段缺volume DB/实例链接导致backup pool404，尚未执行rebuild。候选1.0.14补精确缺失分类及完整前置配置原生回归；不在目标手工补DB或删除目录。当前ARM 24镜像新轮运行，AMD待#38恢复，新候选/最终矩阵/正式发行仍待。此前“候选未激活”是历史状态。

@@ -1,4 +1,12 @@
-# v1.8.10候选验证（未正式发行）
+# v1.8.10验证与发行记录
+
+2026-11-14正式面板已公开，最终source92829310、main CI43568136335 29/29success。正式43568813210双构建/双首装/六旧worker升级全部success，但publish job被跳过：正式路径的preview-agent刻意skipped，GitHub的隐式success条件沿间接依赖阻止末尾发布。已在后续源码给release job增加always()并逐项要求build/fresh-install/legacy-upgrade成功，仓库守卫通过。此版未移动tag或重打包，逐job核原正式来源与全部成功门槛后，用该run原两个tar及同格式OTA清单公开发布；公开资产另行重新下载验digest/source。流程修复不改变已验证产品包。
+
+正式发行进行中：PR14已于06:48:42UTC合并，最终main与面板注释tag解引用均为9282931002563528c22e4079f1c12721a5ff1f11；tag对象794d3b87bd5aa222f253198aece72146afb2e7dc。Agent v1.0.14已公开，main43568136313全成功，下载资产与候选逐字一致：AMD64 27885720B SHA04ac54ea0f5494f9727757880836353d53a9a011cca7580bf96f78638ba51b30，ARM64 25297048B SHA5c496c7440334e7007bcb12433938d3c8dee7d1aa17a88704613e3cc441420ff，LICENSE1496B SHA5659dbf51fa91752f85fe0fb6677086ac1fbc368768ac3d230a70af86afdad6b。面板正式43568813210进行中，公开包待核；mainCI43568136335仍尾段。目标已部署相同源码候选，但不是正式包OTA证据。
+
+2026-11-14 06:46 UTC上线前验收完成：累计AMD24/24（cd1b已过16+92829310新增8）、ARM24/24（cd1b已过12+92829310新增12），各镜像重装/实际OS/确认Stopped/启动/重启/原SSH凭据与marker/IPv6/DNS/proc+cgroup+sysinfo通过，续测余额999854.88保持、原newPurchase账单AMD5/ARM2保持。初轮ARM差额仅独立#44新购11元，实际balanceLog/订单/账单逐项核清。#44本版本TinyCloud新购与停启/重启全验通过。34台Agent1.0.14/new hash verified/online/BBR applied，23空库存可售，无在途任务；退役镜像记录为空，图库224文件18,659,690,538B/hash337c714453a6b5102e51f4c849156df161e5d0619197e68c803b75505c3a7e4d与更新前一致。#27/#41原UUID/密码/文件/账期价格/自授权停启后的PID与boot保持，SSH/IPv6/sysinfo768MiB再次通过；新候选backend NRestarts=0。正式发布可开始，公开Release与资产仍需独立验收。
+
+最新候选9282931002563528c22e4079f1c12721a5ff1f11：CI43561792581 29/29，12兼容原生43561792696、Agent43561792709、Alpine43561792652、无tag预览43561790220双首装及六原v1.8.9 worker正常/迁移留库/后半程回退再升级全部success，公开Release跳过。实际双tar原pin签名/source/243迁移/新DNS与SSH/onDispatch/心跳模块同本地build独立通过；Agent仍已验证1.0.14。目标更新49于06:05:49UTC成功preview-9282931；#38重新选Edge任务833真实磁盘Edge、SSH/IPv6/768MiB/30GiB/原UUID账期价格通过。完整镜像续测仍在运行，未正式发行；旧cd1b矩阵因SSH二次error后台退出中断，只保留AMD16/ARM12真实passed，未测项继续验，不能将#44新购11元误算为重装扣款。
 
 2026-11-14当前源码cd1b1787667e4ddea7c6b2945f229260a0bfdb4f/Agent1.0.14正在验收；目标主控候选47仍preview-70f75c6/1.0.13。#27/#41已按owner授权各停启一次并确认sysinfo768MiB、原UUID/密码/公钥/账期/价格/SSH/公网IPv6，不再待授权。34宿主新daemon verified/online/宿主BBR applied，24空库存可售。#38旧重装残留先在Btrfs目录、后在配置PUT缺volume登记暴露遗漏，5384edbe补完整恢复链并12原生/双首装/六旧worker预览43551270721成功，但尚未目标再热更。随后#42 TinyCloud停启DNS随机清空，5c8d966c修双dhcpcd竞争与resolver，双架构真实旧DNS恢复/两次停启及预览43552219969成功。Owner明确全池及新接入覆盖，cd1b1787追加IPv4-only后台维护/正常交付入口，双PG/mTLS及完整104任务重装/换机回归通过，同来源CI43553546558/预览43553542894继续。最终目标#38、全池DNS和全部镜像矩阵未完成，正式未发行；下方阶段记录不得覆盖当前状态。
 
