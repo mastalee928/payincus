@@ -92,7 +92,11 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
   const guarded = new Proxy(client, { get(target, property) {
     if (property === 'request') return async <T>(method: string, path: string, body: unknown = null, timeout = 120000, signal?: AbortSignal, conditions?: IncusRequestConditions) => {
       await check()
-      if (method !== 'GET' && path !== '/1.0/instances') await identity()
+      // These disposable host image volumes must be released before the new
+      // guest exists. The pool helper verifies the original marked storage,
+      // while check() still fences this exact paid attempt and host identity.
+      const imageCacheDeletion = method === 'DELETE' && /^\/1\.0\/storage-pools\/payincus-pool\/volumes\/image\/[a-f0-9]{64}$/.test(path)
+      if (method !== 'GET' && path !== '/1.0/instances' && !imageCacheDeletion) await identity()
       await check()
       if (method === 'POST' && path === '/1.0/instances' && instance.dedicatedIpv4 && !await prisma.hostAgent.count({
         where: { hostId: host.id, ...hostProvisioningToolsReadyWhere() }

@@ -16,6 +16,7 @@ const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { createInstanceAsync } = await import('../src/routes/instances.js')
 const { failPoolProvision } = await import('../src/services/pool-provisioning.js')
 const { beginPoolProvision, PoolProvisionOwnershipError } = await import('../src/services/pool-provisioning.js')
+const { pruneIsolatedPoolImageVolumes } = await import('../src/lib/pool-disk-isolation-remote.js')
 const { IncusClient } = await import('../src/lib/incus/incus-client.js')
 const { getHostById } = await import('../src/db/hosts.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
@@ -34,6 +35,9 @@ const server=createServer({key:await readFile(keyPath),cert:certificate,ca:certi
     if(path==='/1.0')return ok({api_version:'1.0'})
     if(path==='/1.0/storage-pools/fixture'||path==='/1.0/storage-pools/default')return ok({name:path.split('/').at(-1),driver:'lvm',config:{'volume.block.filesystem':'btrfs'}})
     actions.push(`${req.method} ${path}`)
+    if(path==='/1.0/storage-pools/payincus-pool')return ok({driver:'lvm',status:'Created',config:{source:'/var/lib/incus/disks/payincus-pool.img','volume.block.filesystem':'btrfs','user.payincus.disk-isolation':'lvm-btrfs-v1'}})
+    if(path==='/1.0/storage-pools/payincus-pool/volumes?recursion=1&all-projects=true')return ok([{type:'image',name:'a'.repeat(64)}])
+    if(req.method==='DELETE'&&path==='/1.0/storage-pools/payincus-pool/volumes/image/'+'a'.repeat(64))return ok()
     if(path==='/1.0/instances'&&req.method==='POST') {
       let body='';for await(const chunk of req)body+=chunk
       const config=JSON.parse(body);assert.equal(config.name,name)
@@ -182,6 +186,17 @@ try {
         await client.connect()
         fence=await beginPoolProvision(instance.id,(await getHostById(host.id))!,client,name)
         assert.ok(fence)
+        if(scenario==='valid'){
+          remote=null;const start=actions.length
+          await pruneIsolatedPoolImageVolumes(fence.client,'payincus-pool')
+          assert.ok(actions.slice(start).includes('DELETE /1.0/storage-pools/payincus-pool/volumes/image/'+'a'.repeat(64)), 'marked image cache can be pruned before the paid guest exists')
+          assert.ok(!actions.slice(start).some(a=>a.startsWith('DELETE /1.0/instances/')), 'pre-create pruning never deletes a guest')
+          await prisma.host.update({where:{id:host.id},data:{serverFingerprint:'changed'}})
+          const beforeRefusal=actions.length
+          await assert.rejects(pruneIsolatedPoolImageVolumes(fence.client,'payincus-pool'))
+          assert.equal(actions.length,beforeRefusal,'host identity change still blocks all cache requests')
+          await prisma.host.update({where:{id:host.id},data:{serverFingerprint:host.serverFingerprint}})
+        }
         remote={name,type:'container',project:'default',created_at:new Date().toISOString(),status:'Running',profiles:[],
           config:{'volatile.uuid':randomUUID(),'user.payincus.provisioning-attempt':fence.attempt,'security.privileged':'false'},
           devices:{root:{type:'disk',path:'/',pool:'fixture'}}}
