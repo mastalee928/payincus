@@ -42,6 +42,18 @@ func TestEmbeddedCompatibilityPayload(t *testing.T) {
 		t.Fatal("payload", e)
 	}
 }
+func TestCompatibilityEmptyAndActiveOperations(t *testing.T) {
+	for _, response := range []string{`{"type":"sync","status_code":200,"metadata":{}}`, `{"type":"sync","status_code":200,"metadata":{"success":[{"status":"Success"}]}}`} {
+		if !compatOperationsIdle([]byte(response)) {
+			t.Fatal("idle response rejected")
+		}
+	}
+	for _, response := range []string{"", `{}`, `{"type":"error","status_code":500,"metadata":{}}`, `{"type":"sync","status_code":200,"metadata":null}`, `{"type":"sync","status_code":200,"metadata":{"running":[{"status":"Running"}]}}`, `{"type":"sync","status_code":200,"metadata":{"unknown":[{}]}}`} {
+		if compatOperationsIdle([]byte(response)) {
+			t.Fatal("unconfirmed response accepted")
+		}
+	}
+}
 func TestNativeCompatibilityAutomaticReload(t *testing.T) {
 	if os.Getenv("INCUDAL_SYSINFO_COMPAT_TEST") != "disposable" {
 		t.Skip("disposable Alpine root only")
@@ -167,5 +179,35 @@ func TestNativeCompatibilityAutomaticReload(t *testing.T) {
 	}
 	if e = prepareIncusCompatibility(ctx, p); e != nil {
 		t.Fatal("idempotency", e)
+	}
+}
+func TestNativeCompatibilityEmptyPoolReload(t *testing.T) {
+	if os.Getenv("INCUDAL_SYSINFO_COMPAT_TEST") != "disposable" || os.Getenv("INCUDAL_COMPAT_RELOAD_SCENARIO") != "empty-pool" {
+		t.Skip("disposable empty pool only")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	rows, err := compatGuests(ctx)
+	if err != nil || len(rows) != 0 {
+		t.Fatal("pool not empty", err)
+	}
+	plain, err := run(ctx, "incus", "query", "/1.0/operations?recursion=1")
+	if err != nil || len(strings.TrimSpace(string(plain))) != 0 {
+		t.Fatal("expected real suppressed empty query response", err)
+	}
+	raw, err := run(ctx, "incus", "query", "--raw", "/1.0/operations?recursion=1")
+	if err != nil || !compatOperationsIdle(raw) {
+		t.Fatal("real empty envelope", err)
+	}
+	p := &CompatPermit{RequestID: "11111111-1111-4111-8111-111111111111", HostIdentity: strings.Repeat("a", 64), ExpiresAt: time.Now().Add(240 * time.Second).UTC().Format(time.RFC3339Nano)}
+	if err = prepareIncusCompatibility(ctx, p); err != nil {
+		t.Fatal("empty pool automatic reload", err)
+	}
+	if err = prepareIncusCompatibility(ctx, p); err != nil {
+		t.Fatal("empty pool idempotency", err)
+	}
+	status, request, _ := incusCompatibilityStatus(ctx)
+	if status != "verified" || request != p.RequestID {
+		t.Fatal("empty pool receipt missing")
 	}
 }

@@ -417,12 +417,11 @@ func prepareIncusCompatibility(ctx context.Context, permit *CompatPermit) error 
 		}
 		return saveCompatJournal(compatJournal{Version: 1, OldHash: compatHash(installed), NewHash: compatHash(data), PID: pid, ProcessStart: start, RequestID: permit.RequestID, HostIdentity: permit.HostIdentity, Phase: "verified", Guests: rows})
 	}
-	operations, e := run(ctx, "incus", "query", "/1.0/operations?recursion=1")
+	operations, e := run(ctx, "incus", "query", "--raw", "/1.0/operations?recursion=1")
 	if e != nil {
 		return e
 	}
-	var ops map[string][]json.RawMessage
-	if json.Unmarshal(operations, &ops) != nil || len(ops["running"])+len(ops["pending"]) > 0 {
+	if !compatOperationsIdle(operations) {
 		return fmt.Errorf("compatibility waits for active operations")
 	}
 	guests, e := compatGuests(ctx)
@@ -537,6 +536,28 @@ func prepareIncusCompatibility(ctx context.Context, permit *CompatPermit) error 
 	}
 	journal.Phase = "verified"
 	return saveCompatJournal(journal)
+}
+func compatOperationsIdle(response []byte) bool {
+	var envelope struct {
+		Type       string                       `json:"type"`
+		StatusCode int                          `json:"status_code"`
+		Error      string                       `json:"error"`
+		Metadata   map[string][]json.RawMessage `json:"metadata"`
+	}
+	if json.Unmarshal(response, &envelope) != nil || envelope.Type != "sync" || envelope.StatusCode != 200 || envelope.Error != "" || envelope.Metadata == nil {
+		return false
+	}
+	for _, rows := range envelope.Metadata {
+		for _, raw := range rows {
+			var operation struct {
+				Status string `json:"status"`
+			}
+			if json.Unmarshal(raw, &operation) != nil || operation.Status != "Success" && operation.Status != "Failure" && operation.Status != "Cancelled" {
+				return false
+			}
+		}
+	}
+	return true
 }
 func rollbackIncusCompatibility(ctx context.Context, journal compatJournal) error {
 	b, e := os.ReadFile(compatBackupPath)

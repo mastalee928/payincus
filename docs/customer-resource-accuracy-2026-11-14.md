@@ -1,5 +1,7 @@
 # 客户资源限额与开通中 IPv6 展示
 
+目标热更新46成功preview-aa8a291，Agent1.0.11自然34/34升级，9实例PID/UUID/状态/账期价格与镜像库保持；但自动维护全部prepared，实际销售门禁未解除。现场实际Incus query空metadata输出零字节，ops JSON误拒阻止开始替换；修query --raw并核成功envelope及真实空对象，新增空池×两架构合计8场景，Agent1.0.12新验证与全池原任务续接仍待。不能用六客机原生绿或工具ready表示全池已修复可售。
+
 最终自动函数原生来源b372a9bf/43527445621六场景全部success：AMD/ARM正常、prepared原子替换后中断恢复、OpenRC失败后的持久回滚和再次修复。固定原进程exe内容hash/PID启动时间核验闭环，原客机UUID/PID/boot/marker保持，实际sysinfo=128MiB。完整同来源CI/包/双首装/六旧worker预览仍进行，本批尚未热更新；不能用原生128MiB测试宣称目标E2/ARM1C现场已sysinfo准确。
 
 自动Agent函数正常流程已于43526018569双架构原生通过：OpenRC重载及幂等、原客机UUID/PID/boot/marker保持、sysinfo精确128MiB。回滚复审随后补持久rolling-back阶段，避免旧binary已恢复但服务未起时reloading/NewHash阻断自动续接；六场景正常/准备后中断/启动失败回滚重试×双架构继续验证，尚未新候选热更新或发行。

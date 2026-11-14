@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- aa8a291d候选热更新46于2026-11-14 00:20:38UTC成功preview-aa8a291，备份/opt/incudal.bak.20261114001857，原worker/DB支付/243迁移无待执行/双前端/身份检查通过。初次暂存Agent在/opt/incudal/agent-release-aa8a291d触发原seal额外3文件拒绝；核原文件0changed/0removed后移到/var/lib/incudal-agent-release/aa8a291d，原任务46执行成功，未放宽seal。以后候选组件暂存必须在代码目录外。34/34已自然Agent1.0.11，9运行实例PID/UUID/账期/价格/状态及图库224文件18.66GB原样保持；但自动兼容全部prepared、暂挡新售。根因实际Incus query在metadata={}时输出空文本，Agent解析ops失败（尚未替换）；六客机测试含诊断操作没有覆盖空ops。源码改query --raw、严格sync/200/非NULL metadata/所有终态操作校验，Agent递增1.0.12；新增空池×双架构共8原生场景。双vet/编译/版本和工具守卫过，待新来源实际空池/自动续接/目标sysinfo/解除门禁，禁止正式发布。
+
+- 最新产品aa8a291d184135b27945e5636c0f08bab8258bfe：自动native43529108631六组全部success，Agent43529108630success/Release skipped；无tag预览43529100818双构建、兼容双构建、Agent准备、双首装与六原v1.8.9worker升级（含迁移留库和后半程失败回滚再升级）全部success/Release skipped。实际双tar独立签名/原pin/source/243迁移/用户无改价入口/钱包退款/无图库核过；全文件本地比对migration_lock仅CRLF差，CI实际包检查过。完整CI43529108636当前23success/6综合分片运行，尚未全部终态。现场只读基线23:50UTC：34宿主Agent1.0.10均online/tools ready/poolFaulted false，9运行实例MiB/30GiB正确，0在途task，图库存224文件18.66GB。新批未热更新正式发行；私有基线在仓库外hardening29/compat-before-automatic.json。
+
 - 六原生完成后控制面复审发现重载断点的API/许可互等：pending Agent必须拿原许可恢复daemon，但原主控先connect Incus。改仅已持久prepared+受信当前Agent/原host+匹配request/hash/原实例绑定的pending续接不依赖daemon API，首次准备及verified解除仍真实mTLS核验；不同request拒绝。新增PG/mTLS原许可/零远端读取/异请求拒绝及完整AMD/ARM重装换机账務回归已exit0，server types和host-tools过。最新产品来源待推CI/预览；六原生只改Agent范围仍保持，但主控新许可必须同来源验收。未热更新正式发行。
 
 - b372a9bf35a8a7405e380d9c17769e5514dfaa4e自动原生43527445621六场景全部success：AMD/ARM正常重载、prepared中断恢复、服务失败rolling-back续接/旧binary与guest恢复/再修复。六组原PID/UUID/boot/marker保留，sysinfo准确128MiB；真实Agent函数/OpenRC执行，非手动切换。最新完整CI43527445647、Agent43527445557、Alpine43527445547、兼容构建43527445562及无tag双构建/双首装/六旧worker预览43528070537尚待终态。主控最新确认preview-6093777/Agent1.0.10，本批尚未热更新正式发行；后续核最终原生回滚、包、目标E2/ARM1C实际sysinfo和全池自动跟进。

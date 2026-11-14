@@ -23,6 +23,12 @@ ls -l /proc/$old/exe /run/incus /var/lib/incus || true
 cat /tmp/incusd-original.log
 if ! incus admin waitready --timeout=60; then cat /tmp/incusd-original.log; exit 1; fi
 incus storage create default dir
+if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = empty-pool; then
+  printf '%s\n' "$old" > /run/incus/incusd.pid
+  /out/provisioning-test -test.run '^TestNativeCompatibilityEmptyPoolReload$' -test.v
+  echo 'PASS actual empty-pool operations response and automatic daemon reload'
+  exit 0
+fi
 incus init images:alpine/3.24/tinycloud native-sysinfo -s default -c limits.memory=128MiB -c security.syscalls.intercept.sysinfo=true
 if ! incus start native-sysinfo; then incus info --show-log native-sysinfo; cat /tmp/incusd-original.log; exit 1; fi
 sleep 4
