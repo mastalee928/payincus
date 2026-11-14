@@ -57,7 +57,7 @@ const updateRealReceipts = async () => {
     const now = Date.now()
     const guest = acceptGuestProtectionStatus(report.guestProtectionStatus, now, now)
     const tools = acceptHostProvisioningStatus(report.hostProvisioningStatus, now, now)
-    if (!guest?.applied || !tools?.ready) return
+    if (!guest?.applied || !tools?.ready || !tools.diskTools) return
     await prisma.hostAgent.update({ where: { hostId: host.id }, data: { version: 'native-current', lastSeenAt: new Date(now),
       capabilities: ['guest-network-protection-v1', 'host-provisioning-tools-v1', 'ingress-port-protocol-v1', 'dedicated-ipv6-v1'],
       lastReport: { guestProtectionStatus: guest, hostProvisioningStatus: tools } } })

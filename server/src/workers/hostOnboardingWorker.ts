@@ -322,7 +322,7 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     await queueHostGatewayDns(node.batch.createdById, node.id).catch(() => {})
     await createLog(node.batch.createdById, 'host', 'host.onboarding.complete', `Onboarded host "${node.name}" via management tunnel`, 'success')
   } catch (error) {
-    const code = error instanceof OnboardingError ? error.code : error instanceof Error &&
+    const code = error instanceof Error && /^POOL_DISK_/.test(error.message) ? 'POOL_DISK_ISOLATION_PENDING' : error instanceof OnboardingError ? error.code : error instanceof Error &&
       /^(?:HARDENING_[A-Z_]+|WORKER_INTERRUPTED)$/.test(error.message) ? error.message : 'ONBOARDING_STEP_FAILED'
     // During shutdown, leave the durable job resumable. The detached remote
     // installer keeps running; its PID/exit files prevent duplicate installs.

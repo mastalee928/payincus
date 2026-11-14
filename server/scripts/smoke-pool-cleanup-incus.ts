@@ -37,7 +37,7 @@ try {
       cpuUsed: 200, memoryUsed: 768, diskUsed: 30720, natPortStart: 20000, natPortEnd: 30000,
       portProtocol: 'tcp', portProtocolRevision: 1, portProtocolApplied: 'tcp', portProtocolAppliedRevision: 1,
       agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]) } },
-      storagePools: { create: { name: 'cleanup-test', driver: 'dir', purpose: 'instance_data' } } } })
+      storagePools: { create: { name: 'cleanup-test', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } } } })
     try {
       if (process.env.EXPIRY_DELETION_WORKER === '1') {
         await prisma.host.update({ where: { id: host.id }, data: { poolFaulted: false } })

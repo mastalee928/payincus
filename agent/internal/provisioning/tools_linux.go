@@ -119,12 +119,12 @@ func check(ctx context.Context) error {
 		if n == "unsquashfs" {
 			flag = "-version"
 		}
-		if n == "btrfstune" {
-			flag = "--version"
-		}
 		out, e := run(ctx, n, flag)
 		var exit *exec.ExitError
 		if n == "unsquashfs" && errors.As(e, &exit) && exit.ExitCode() == 1 && regexp.MustCompile(`(?m)^unsquashfs version [0-9]+\.[0-9]+`).Match(out) {
+			e = nil
+		}
+		if n == "btrfstune" && errors.As(e, &exit) && exit.ExitCode() == 1 && strings.Contains(string(out), "btrfstune [options]") {
 			e = nil
 		}
 		if e != nil {

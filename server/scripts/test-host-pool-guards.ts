@@ -91,7 +91,7 @@ for (const expected of ['x86_64', 'aarch64'] as const) {
 }
 const onboardingWorker = readFileSync(new URL('../src/workers/hostOnboardingWorker.ts', import.meta.url), 'utf8')
 assert.ok(onboardingWorker.indexOf('verifyOnboardingArchitecture(info.environment?.kernel_architecture, resources.probe.architecture)') <
-  onboardingWorker.indexOf("const poolName = 'payincus-pool'"), 'reject unknown or conflicting architecture before storage mutation')
+  onboardingWorker.indexOf('await ensureIsolatedPool('), 'reject unknown or conflicting architecture before storage mutation')
 const defaults = { countryCode: 'us', resourcePreset: 'E2' as const, customerDiskGiB: 30 }
 const onboardingInput = { requestId: '11111111-1111-4111-8111-111111111111', name: 'protocol-fixture', accountLabel: '',
   defaults, credentials: { password: 'fixture-only' }, nodes: [{ name: 'protocol-host', publicIp: '8.8.8.8' }] }

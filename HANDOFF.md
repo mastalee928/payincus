@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 磁盘隔离候选a5a0d38f/PR15首轮CI发现：Ubuntu24.04的btrfstune无--version，导致tool ready=false，所有原生在转换前拒绝；改--help并只接受真实btrfstune用法的历史exit1。共享dir/btrfs旧库存fixture仍期望可售的计费/cleanup测试同步为LVM独立卷，实际cleanup脚本也改LVM以验真实删卷回池。预览全量221/222，唯一失败是架构检查守卫仍找已抽成常量的旧poolName字面量；改为验证架构检查在ensureIsolatedPool之前，单跑通过。类型/build/两架构Go与PG转换/库存通过，待新同来源原生，不以首轮失败项为已通过。未动线上实例或池。
+
 - 2026-11-14磁盘可见范围新工作：owner要求df/statfs与SSH监控只见当前实例磁盘，覆盖现有/未来宿主、新建/重装/回池；随后明确现有用户实例均可删除。当前线上仅只读#35，确认30GiB qgroup但statfs=34GiB。独立本地Alpine6.18/Incus7.0.1实验：LVM thin+Btrfs每卷，5GiB池内1GiB客机df/statfs精确1GiB，文件/快照/UUID保持，创建时间随存储迁移改变；回退缺btrfstune后补工具，未进行生产迁移/删除。因owner允许清存量，不再要求客户数据迁移。分支codex/isolated-instance-disks候选1.8.11/Agent1.0.15：新接入默认LVM+Btrfs，旧空池经原身份/DB锁/0实例/0任务/仅缓存卷核验再重建同名池，断线/半初始化自动续接；Agent补工具和kernel thin支持回执，销售/选池/创建前复核独立文件系统。初轮types/隔离状态守卫/真实PG+mTLS转换与池库存/计费回归通过；双架构原生改为旧空Btrfs→产品转换→7镜像创建/真实statfs，尚待CI。现有用户实例未删，主控仍v1.8.10；新方案未热更新或正式发行。
 
 - 2026-11-14 19:31北京时间只读复核owner磁盘截图：实例#35/u2-hfkdlhtm（host38）当前主控v1.8.10，DB disk=30720MiB、Incus root size=30720MiB，真实Btrfs子卷ID300/qgroup0/300 max_referenced=32212254720B（30GiB），无quota rescan。客机与宿主df/statfs均返回36507222016B（34GiB）整池，已用5078876160B、available31252217856B；子卷实际referenced515162112B。截图的df Size=34G、Avail=30G，30G为剩余整池空间，不是配额或总量。之前修复实际30GiB限制，但未实现让客机df/statfs及外部SSH资源工具显示实例配额；不得继续将“资源全部修好”解释为外部磁盘显示已是30G。本次只读取证，未写客户磁盘/改配额/重启；原始无凭据证据在仓库外hardening29/compat-disk35-quota-20261114.json。

@@ -3,12 +3,14 @@ set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted && $EUID -eq 0 ]] || exit 1
 [[ ! -d /var/lib/incus/containers || -z $(ls -A /var/lib/incus/containers) ]] || { echo 'Disposable empty Incus host required'; exit 1; }
 apt-get update -qq
-apt-get install -y -qq incus busybox-static openssl apparmor
+apt-get install -y -qq incus busybox-static openssl apparmor lvm2 thin-provisioning-tools btrfs-progs
 command -v aa-exec
 aa-exec --help >/dev/null
 systemctl start incus
 incus admin waitready --timeout=30
-incus storage create cleanup-test dir
+modprobe dm_thin_pool
+modprobe btrfs
+incus storage create cleanup-test lvm size=12GiB volume.block.filesystem=btrfs
 incus network create incusbr0 ipv4.address=10.199.0.1/24 ipv4.nat=true ipv6.address=none
 incus profile device add default root disk path=/ pool=cleanup-test
 incus profile device add default eth0 nic network=incusbr0 name=eth0

@@ -247,7 +247,7 @@ try {
     resourcePreset: 'E2', customerDiskGiB: 30, architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34,
     portProtocol: 'tcp', portProtocolRevision: 1, portProtocolApplied: 'tcp', portProtocolAppliedRevision: 1,
     agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]) } },
-    storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } } } }); poolHostId = poolHost.id
+    storagePools: { create: { name: 'default', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } } } }); poolHostId = poolHost.id
   const poolInstance = await prisma.instance.create({ data: { userId: poor.id, hostId: poolHost.id, packageId: pkg.id, packagePlanId: plan.id,
     name: poolName, incusId: poolName, image: 'fixture', cpu: 100, memory: 128, disk: 1024,
     status: 'suspended', suspendReason: 'expired', expiresAt: new Date(Date.now() - 4 * 86400000), suspendedAt: new Date(Date.now() - 4 * 86400000), expiresAt: new Date(Date.now() - 4 * 86400000),
