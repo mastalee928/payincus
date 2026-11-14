@@ -91,6 +91,20 @@ func TestNativeCompatibilityAutomaticReload(t *testing.T) {
 	for _, g := range before {
 		p.Guests = append(p.Guests, CompatGuestPermit{Name: g.Name, UUID: g.Config["volatile.uuid"], State: g.Status})
 	}
+	if os.Getenv("INCUDAL_COMPAT_RELOAD_SCENARIO") == "previous-generation" {
+		original, readErr := os.ReadFile("/usr/sbin/incusd")
+		start, startErr := compatProcessStart(pid)
+		if readErr != nil || startErr != nil {
+			t.Fatal("previous generation fixture", readErr, startErr)
+		}
+		if e = os.WriteFile(compatBackupPath, original, 0700); e != nil {
+			t.Fatal(e)
+		}
+		j := compatJournal{Version: 1, OldHash: compatHash(original), NewHash: compatHash(original), PID: pid, ProcessStart: start, RequestID: p.RequestID, HostIdentity: p.HostIdentity, Phase: "verified", Guests: before}
+		if e = saveCompatJournal(j); e != nil {
+			t.Fatal(e)
+		}
+	}
 	if os.Getenv("INCUDAL_COMPAT_RELOAD_SCENARIO") == "prepared-resume" {
 		original, readErr := os.ReadFile("/usr/sbin/incusd")
 		fixed, payloadErr := compatibilityBinary()
@@ -179,6 +193,16 @@ func TestNativeCompatibilityAutomaticReload(t *testing.T) {
 	}
 	if e = prepareIncusCompatibility(ctx, p); e != nil {
 		t.Fatal("idempotency", e)
+	}
+	if os.Getenv("INCUDAL_COMPAT_RELOAD_SCENARIO") == "previous-generation" {
+		previous, readErr := os.ReadFile(compatBackupPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		archived, readErr := os.ReadFile(compatBackupPath + "." + compatHash(previous))
+		if readErr != nil || compatHash(archived) != compatHash(previous) {
+			t.Fatal("previous rollback archive not preserved", readErr)
+		}
 	}
 }
 func TestNativeCompatibilityEmptyPoolReload(t *testing.T) {
