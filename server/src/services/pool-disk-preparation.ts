@@ -1,7 +1,7 @@
 import { prisma } from '../db/prisma.js'
 import { getHostById } from '../db/hosts.js'
 import { getIncusClient } from '../lib/incus/incus-pool.js'
-import { ensureIsolatedPool } from '../lib/pool-disk-isolation-remote.js'
+import { ensureIsolatedPool, pruneIsolatedPoolImageVolumes } from '../lib/pool-disk-isolation-remote.js'
 import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
@@ -54,11 +54,35 @@ export async function prepareEmptyPoolDisk(hostId: number): Promise<boolean> {
   }, { maxWait: 2000, timeout: 90000 })
 }
 
+/** Existing and future managed pools: cached image LVs never permanently
+ * consume the customer's full-disk allowance. No customer volume is deleted. */
+export async function prunePoolDiskImageCache(hostId: number): Promise<void> {
+  if (recoveryHeld()) return
+  const original = await prisma.host.findUniqueOrThrow({ where: { id: hostId } })
+  if (!original.singleTenant || original.status !== 'online' || original.installPending || hostMaintenanceBlocked(original.securityHardening)) return
+  const transport = await getIncusClient((await getHostById(hostId))!, prisma, 5000)
+  await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM instances WHERE host_id=${hostId} ORDER BY id FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id=${hostId} FOR UPDATE`
+    const host = await tx.host.findUniqueOrThrow({ where: { id: hostId } })
+    if (recoveryHeld() || !host.singleTenant || host.status !== 'online' || transferHostIdentity(host) !== transferHostIdentity(original) || host.installPending ||
+      hostMaintenanceBlocked(host.securityHardening) || await tx.checkoutReservation.count({ where: { hostId } }) ||
+      await tx.instance.count({ where: { hostId, status: 'creating' } }) || await tx.instanceTask.count({ where: {
+        status: { in: ['PENDING', 'PROCESSING'] }, OR: [{ hostId }, { targetHostId: hostId }] } }) ||
+      await tx.restoreTask.count({ where: { hostId, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
+      await tx.backupUploadTask.count({ where: { hostId, status: { in: ['PENDING', 'PROCESSING'] } } })) return
+    await pruneIsolatedPoolImageVolumes(transport.withMaintenanceDatabase(tx), POOL_DISK_NAME, async () => {
+      if (recoveryHeld()) throw Error('PLATFORM_RECOVERY_HELD')
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id=${hostId} FOR UPDATE`
+    })
+  }, { maxWait: 2000, timeout: 60000 })
+}
+
 let timer: ReturnType<typeof setTimeout> | undefined, active: Promise<void> | undefined, stopped = true, cursor = 0
 async function scan() {
   if (recoveryHeld()) return
   const hosts = await prisma.host.findMany({ where: { id: { gt: cursor }, singleTenant: true, status: 'online', isInstalled: true,
-    instances: { none: HOST_OCCUPIED_INSTANCE_WHERE }, storagePools: { none: { purpose: 'instance_data', driver: 'lvm', config: { path: ['volume.block.filesystem'], equals: 'btrfs' } } } }, orderBy: { id: 'asc' }, take: 10, select: { id: true } })
+    }, orderBy: { id: 'asc' }, take: 10, select: { id: true } })
   if (!hosts.length) { cursor = 0; return }
   for (const host of hosts) {
     if (stopped) return
@@ -69,6 +93,7 @@ async function scan() {
       try { await prisma.$executeRaw`UPDATE hosts SET resource_snapshot = jsonb_set(COALESCE(resource_snapshot, '{}'::jsonb), '{diskIsolation}',
         ${JSON.stringify({status:'retry',reason,nextAttemptAt:new Date(Date.now()+30000).toISOString()})}::jsonb) WHERE id=${host.id}` } catch { /* Keep processing later hosts even if diagnostic persistence fails. */ }
     }
+    try { await prunePoolDiskImageCache(host.id) } catch { console.warn(`[PoolDisk] 宿主 #${host.id} 镜像缓存卷待自动释放`) }
   }
 }
 export function startPoolDiskPreparation() {

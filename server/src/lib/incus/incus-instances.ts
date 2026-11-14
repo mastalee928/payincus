@@ -15,6 +15,7 @@ import { generateVmNicMacs } from '../vm-network-identifiers.js'
 import { resolveIncusSwapValue } from '../instance-swap.js'
 import { assertCustomerIsolation, assertCustomerProfiles, readCustomerIsolation, rejectCustomerPrivilege } from './customer-isolation.js'
 import { resolveCachedSystemImage } from '../../services/system-image-import.js'
+import { pruneIsolatedPoolImageVolumes } from '../pool-disk-isolation-remote.js'
 
 const INSTANCE_BUSY_WAIT_TIMEOUT_MS = 300000
 const INSTANCE_BUSY_POLL_INTERVAL_MS = 2000
@@ -290,10 +291,15 @@ export async function createInstance(client: IncusClient, config: unknown): Prom
   // Preserve the caller's create/compensation receipt; check the effective remote
   // configuration before starting it or replacing any original restore source.
   const typed = config as { type?: string; source?: { alias?: string; server?: string; protocol?: string } }
+  const devices = (config as { devices?: Record<string, { type?: string; path?: string; pool?: string }> }).devices
+  const pool = Object.values(devices || {}).find(d => d.type === 'disk' && d.path === '/')?.pool
+  if (pool) try { await pruneIsolatedPoolImageVolumes(client, pool) } catch { console.warn('[PoolDisk] Image volume release will retry in the background') }
   const alias = typed.source?.server === 'https://images.linuxcontainers.org' && typed.source?.protocol === 'simplestreams'
     ? 'images:' + typed.source.alias : typed.source?.alias
   const fingerprint = alias ? await resolveCachedSystemImage(client, alias, typed.type === 'virtual-machine' ? 'vm' : 'container') : null
-  return client.request('POST', '/1.0/instances', fingerprint ? { ...config, source: { type: 'image', fingerprint } } : config)
+  const result = await client.request('POST', '/1.0/instances', fingerprint ? { ...config, source: { type: 'image', fingerprint } } : config)
+  if (pool) try { await pruneIsolatedPoolImageVolumes(client, pool) } catch { console.warn('[PoolDisk] Image volume release will retry in the background') }
+  return result
 }
 
 /**
@@ -429,12 +435,23 @@ export async function rebuildInstance(
   if (config && Object.keys(config).length > 0) {
     payload.config = config
   }
+  try {
+    const current = await getInstance(client, name)
+    const root = Object.values(current.devices || {}).find(d => d.type === 'disk' && d.path === '/')
+    if (typeof root?.pool === 'string') await pruneIsolatedPoolImageVolumes(client, root.pool)
+  } catch { console.warn('[PoolDisk] Image volume release will retry in the background') }
 
   // rebuild 是耗时操作，使用 5 分钟超时
-  return runInstanceActionWithBusyRetry(client, name, 'rebuild the instance', () =>
+  const result = await runInstanceActionWithBusyRetry(client, name, 'rebuild the instance', () =>
     client.request('POST', `/1.0/instances/${name}/rebuild`, payload, 300000),
     options
   )
+  try {
+    const rebuilt = await getInstance(client, name)
+    const root = Object.values(rebuilt.devices || {}).find(d => d.type === 'disk' && d.path === '/')
+    if (typeof root?.pool === 'string') await pruneIsolatedPoolImageVolumes(client, root.pool)
+  } catch { console.warn('[PoolDisk] Image volume release will retry in the background') }
+  return result
 }
 
 /**

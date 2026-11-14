@@ -23,7 +23,8 @@ import { acceptGuestProtectionStatus } from '../src/lib/guest-network-protection
 import { acceptHostProvisioningStatus } from '../src/lib/host-provisioning-tools.js'
 import { instanceSshFingerprints, dedicatedIpv6InstallScript } from '../src/lib/incus/dedicated-ipv6.js'
 import { reconcilePoolInstanceDns } from '../src/services/pool-resource-reconciliation.js'
-import { prepareEmptyPoolDisk } from '../src/services/pool-disk-preparation.js'
+import { prepareEmptyPoolDisk, prunePoolDiskImageCache } from '../src/services/pool-disk-preparation.js'
+import { pruneIsolatedPoolImageVolumes } from '../src/lib/pool-disk-isolation-remote.js'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
@@ -166,6 +167,9 @@ try {
       }
     }
     assert.equal(verified, true, `${image}: generated initialization and real password SSH`)
+    await prunePoolDiskImageCache(host.id)
+    const cachedVolumes = await transport.request<Array<{type:string}>>('GET','/1.0/storage-pools/payincus-pool/volumes?recursion=1&all-projects=true')
+    assert.ok(!cachedVolumes.some(volume => volume.type === 'image'), 'optimized image cache cannot reserve customer disk capacity')
     const pinnedKeys = await instanceSshFingerprints(transport, name)
     execFileSync('/tmp/incudal-resource-tests', ['-test.run', '^TestNativeGuestResourceVisibility$', '-test.v'],
       {env:{...process.env,INCUDAL_NATIVE_VISIBILITY_GUEST:name},stdio:'inherit',timeout:40000})
@@ -334,6 +338,9 @@ try {
       // shrink below its allocated chunks to the former, unsupported 1GiB.
       execFileSync('incus',['init',`images:${image}`,'native-disk-resale','-s','payincus-pool','-d','root,size=10GiB'],{timeout:60000})
       execFileSync('incus',['start','native-disk-resale'],{timeout:30000})
+      execFileSync('incus',['snapshot','create','native-disk-resale','before-image-prune'],{timeout:30000})
+      await pruneIsolatedPoolImageVolumes(transport,'payincus-pool')
+      assert.equal((await transport.request<unknown[]>('GET','/1.0/instances/native-disk-resale/snapshots?recursion=1')).length,1,'image cache pruning retains customer snapshots')
       const actual=execFileSync('incus',['exec','native-disk-resale','--','stat','-f','-c','%S %b','/'],{encoding:'utf8',timeout:10000}).trim().split(/\s+/).map(BigInt)
       assert.equal(actual[0]*actual[1],10n*1024n**3n)
       const full=await execWithOutput(transport,'native-disk-resale',['/bin/sh','-c',`set -e; if result=$(dd if=/dev/zero of=/root/quota-check bs=1048576 count=11000 2>&1); then rm /root/quota-check; exit 1; fi; printf '%s\\n' "$result" | grep -E "No space left|Disk quota exceeded"; rm -f /root/quota-check; sync`],{},120000)

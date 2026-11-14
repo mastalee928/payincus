@@ -10,13 +10,13 @@ import { protectedAgentFixture } from './fixtures/guest-protection.js'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['localhost','127.0.0.1'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
 const {prisma,closePrismaDatabase}=await import('../src/db/prisma.js')
-const {prepareEmptyPoolDisk}=await import('../src/services/pool-disk-preparation.js')
+const {prepareEmptyPoolDisk,prunePoolDiskImageCache}=await import('../src/services/pool-disk-preparation.js')
 const {resolveStoragePoolForNewInstance}=await import('../src/db/storage-pools.js')
 const {closeAllClients}=await import('../src/lib/incus/incus-pool.js')
 const tag='disk-isolation-'+randomUUID(),dir=await mkdtemp(join(tmpdir(),tag)),certPath=join(dir,'cert.pem'),keyPath=join(dir,'key.pem')
 execFileSync(process.env.REVIEW_OPENSSL||'openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=fixture','-addext','subjectAltName=IP:127.0.0.1','-keyout',keyPath,'-out',certPath],{stdio:'pipe',windowsHide:true})
 const cert=await readFile(certPath),writes:string[]=[]
-let mode='',remotePool:any=null,failed=false
+let mode='',remotePool:any=null,failed=false,cachePresent=true
 const server=createServer({key:await readFile(keyPath),cert,ca:cert,requestCert:true,rejectUnauthorized:true},async(req,res)=>{
  res.setHeader('content-type','application/json')
  const ok=(metadata:unknown={})=>res.end(JSON.stringify({type:'sync',metadata})),bad=(code:number)=>{res.statusCode=code;res.end(JSON.stringify({type:'error',error:'fixture failure'}))}
@@ -25,8 +25,10 @@ const server=createServer({key:await readFile(keyPath),cert,ca:cert,requestCert:
  const path=req.url!,method=req.method!
  if(path==='/1.0')return ok({api_version:'1.0'})
  if(path.startsWith('/1.0/instances?'))return ok(mode==='remote-guest'?[{name:'unregistered-customer'}]:[])
- if(path.startsWith('/1.0/operations?'))return ok({})
- if(path.includes('/volumes?'))return ok(mode==='custom-volume'?[{type:'custom'}]:[{type:'image'}])
+ if(path.startsWith('/1.0/operations?'))return ok(mode==='cache-busy'?{running:[{status:'Running'}]}:{})
+ if(path.includes('/volumes?'))return ok(mode==='custom-volume'?[{type:'custom'}]:mode.startsWith('cache')?
+   [{type:'container',name:'customer'},...(cachePresent?[{type:'image',name:'a'.repeat(64)}]:[])]:[{type:'image'}])
+ if(method==='DELETE'&&path==='/1.0/storage-pools/payincus-pool/volumes/image/'+'a'.repeat(64)){writes.push('IMAGE_DELETE');cachePresent=false;return ok()}
  if(method==='GET'&&path==='/1.0/storage-pools/payincus-pool')return remotePool?ok(remotePool):bad(404)
  if(method==='DELETE'&&path==='/1.0/storage-pools/payincus-pool'){writes.push('DELETE');remotePool=null;if(mode==='delete-lost'&&!failed){failed=true;return bad(500)}return ok()}
  if(method==='POST'&&path==='/1.0/storage-pools'){let text='';for await(const part of req)text+=part;const b=JSON.parse(text);assert.equal(b.driver,'lvm');assert.equal(b.config['volume.block.filesystem'],'btrfs');writes.push('POST');remotePool={...b,status:'Created'};if(mode==='create-lost'&&!failed){failed=true;return bad(500)}return ok()}
@@ -56,5 +58,15 @@ try{
   assert.equal((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).poolFaulted,false)
  }
  console.log('PASS real PostgreSQL and pinned mTLS: occupied/unknown storage retained, interrupted empty conversion resumed, new checkout uses isolated pool')
+ for(const scenario of ['cache','cache-busy','cache-task','cache-creating']){
+  mode=scenario;cachePresent=true;writes.length=0
+  const i=await prisma.instance.create({data:{hostId:host.id,userId:user.id,name:tag,incusId:tag,image:'test',status:scenario==='cache-creating'?'creating':'running',cpu:100,memory:768,disk:30720}})
+  if(scenario==='cache-task')await prisma.instanceTask.create({data:{hostId:host.id,instanceId:i.id,userId:user.id,taskType:'rebuild',status:'PROCESSING'}})
+  await prunePoolDiskImageCache(host.id)
+  assert.deepEqual(writes,scenario==='cache'?['IMAGE_DELETE']:[])
+  assert.equal((await prisma.instance.findUniqueOrThrow({where:{id:i.id}})).status,i.status)
+  await prisma.instanceTask.deleteMany({where:{instanceId:i.id}});await prisma.instance.delete({where:{id:i.id}})
+ }
+ console.log('PASS pinned cache pruning preserves the customer row and waits for tasks/creating/remote operations')
 }finally{await closeAllClients();await prisma.host.delete({where:{id:host.id}});await prisma.user.delete({where:{id:user.id}});await closePrismaDatabase();await new Promise<void>(r=>server.close(()=>r()));await rm(dir,{recursive:true,force:true})}
 process.exit(0)
