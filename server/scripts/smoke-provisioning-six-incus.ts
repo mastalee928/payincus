@@ -20,6 +20,7 @@ import { assertRebuildBootReady } from '../src/lib/instance-rebuild-state.js'
 import { acceptGuestProtectionStatus } from '../src/lib/guest-network-protection.js'
 import { acceptHostProvisioningStatus } from '../src/lib/host-provisioning-tools.js'
 import { instanceSshFingerprints, dedicatedIpv6InstallScript } from '../src/lib/incus/dedicated-ipv6.js'
+import { reconcilePoolInstanceDns } from '../src/services/pool-resource-reconciliation.js'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
@@ -199,12 +200,12 @@ try {
       assert.equal(leaseReady, true, 'old duplicate DHCP processes and lease exist')
       await command(': > /etc/resolv.conf')
       const oldBoot = await command('cat /proc/sys/kernel/random/boot_id')
-      await command(dedicatedIpv6InstallScript(null, []), 20000)
+      assert.equal(await reconcilePoolInstanceDns(instance.id),true,'normal pool maintenance repairs DNS on IPv4-only hosts')
       await command('command -v resolvconf; test ! -L /etc/runlevels/default/dhcpcd; grep -q "^nameserver " /etc/resolv.conf; timeout 8 nslookup dl-cdn.alpinelinux.org')
       assert.equal(await command('cat /proc/sys/kernel/random/boot_id'), oldBoot, 'DNS repair does not reboot the guest')
       // A customer-managed symlink must remain a symlink during reconciliation.
       await command('cp /etc/resolv.conf /etc/customer-resolver; rm /etc/resolv.conf; ln -s /etc/customer-resolver /etc/resolv.conf')
-      await command(dedicatedIpv6InstallScript(null, []), 20000)
+      assert.equal(await reconcilePoolInstanceDns(instance.id),true)
       await command('test "$(readlink /etc/resolv.conf)" = /etc/customer-resolver; cmp /etc/resolv.conf /etc/customer-resolver; rm /etc/resolv.conf; mv /etc/customer-resolver /etc/resolv.conf')
       for (let round = 0; round < 2; round++) {
         execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })

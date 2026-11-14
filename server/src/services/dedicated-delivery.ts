@@ -10,6 +10,7 @@ import { checkSshLogin, DedicatedSshVerificationError } from '../lib/dedicated-s
 import { assertGuestNetworkProtection } from '../lib/guest-network-protection.js'
 import { alpineSshSecurityInspection, assertAlpineSshSecurityInspection } from '../lib/alpine-ssh-security.js'
 import { guestSshFingerprintsCommand } from '../lib/ssh-host-identity.js'
+import { alpineGuestDnsRepairScript } from '../lib/alpine-guest-dns.js'
 export { checkSshLogin } from '../lib/dedicated-ssh.js'
 
 export const DEDICATED_BANDWIDTH = '100000Mbit'
@@ -20,7 +21,7 @@ export async function verifyDedicatedSsh(client: IncusClient, name: string, publ
   for (let attempt = 0; attempt < 24; attempt++) {
     try {
       const result = await execWithOutput(client, name, ['sh', '-c',
-        `${alpineSshSecurityInspection}\n${guestSshFingerprintsCommand}; /usr/sbin/sshd -T 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep "^passwordauthentication " || true`], {}, 15000)
+        `${alpineGuestDnsRepairScript}\n${alpineSshSecurityInspection}\n${guestSshFingerprintsCommand}; /usr/sbin/sshd -T 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep "^passwordauthentication " || true`], {}, 20000)
       try { assertAlpineSshSecurityInspection(result.stdout) }
       catch { throw new DedicatedSshVerificationError('securityPatch') }
       const fingerprints = result.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []

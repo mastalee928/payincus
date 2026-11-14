@@ -10,11 +10,22 @@ import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { incusResourceSize } from '../lib/resource-size.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { recoveryHeld } from './platform-backup-core.js'
+import { exec } from '../lib/incus/incus-instances.js'
+import { alpineGuestDnsRepairScript } from '../lib/alpine-guest-dns.js'
 
 /** Repair only exact legacy MB limits of the original paid pool guest.
  * A quota correction does not restart or resize its filesystem or alter billing.
  */
 export async function reconcilePoolInstanceResources(instanceId: number): Promise<boolean> {
+  return reconcilePoolInstanceMaintenance(instanceId, 'resources')
+}
+
+/** All pool hosts are scanned, including those without public IPv6. */
+export async function reconcilePoolInstanceDns(instanceId: number): Promise<boolean> {
+  return reconcilePoolInstanceMaintenance(instanceId, 'dns')
+}
+
+async function reconcilePoolInstanceMaintenance(instanceId: number, kind: 'resources' | 'dns'): Promise<boolean> {
   if(recoveryHeld())return false
   const row=await prisma.instance.findUniqueOrThrow({where:{id:instanceId},include:{host:true}})
   if(!row.dedicatedIpv4||!row.host.singleTenant||!['running','stopped'].includes(row.status)||row.deletionIntent||row.provisioningCleanupPending||row.deletionBillingPending)return false
@@ -38,14 +49,25 @@ export async function reconcilePoolInstanceResources(instanceId: number): Promis
     const cleanup=specs.managedCleanup && typeof specs.managedCleanup==='object' && !Array.isArray(specs.managedCleanup)?specs.managedCleanup as Record<string,unknown>:{}
     // Early paid pool deliveries saved the UUID and trusted endpoint but not
     // Incus creation time. That durable proof still identifies the same guest
-    // for an exact legacy quota correction; today's same-name alone cannot.
+    // for bounded guest maintenance; today's same-name alone cannot.
     const legacyProof=!original.createdAt && cleanup.uuid===original.uuid &&
       cleanup.endpointHash===createHash('sha256').update(currentHost.url).digest('hex')
     if(!original.createdAt&&!legacyProof)return false
     let etag:string|undefined
-    const remote=await client.request<{type?:string;config?:Record<string,string>;devices?:Record<string,Record<string,string>>;created_at?:string}>('GET',`/1.0/instances/${encodeURIComponent(row.incusId)}`,null,5000,undefined,{onEtag:value=>{etag=value}})
+    const remote=await client.request<{status?:string;type?:string;config?:Record<string,string>;devices?:Record<string,Record<string,string>>;created_at?:string}>('GET',`/1.0/instances/${encodeURIComponent(row.incusId)}`,null,5000,undefined,{onEtag:value=>{etag=value}})
     if(!etag||remote.type!=='container'||remote.config?.['volatile.uuid']!==original.uuid||
       (original.createdAt&&!sameGuestCreationTime(remote.created_at,original.createdAt)))return false
+    if(kind==='dns'){
+      if(current.status!=='running'||remote.status!=='Running'||current.suspendedAt||
+        current.expiresAt&&current.expiresAt.getTime()<=Date.now())return false
+      // Old duplicate DHCP registration was generated only for Alpine disks.
+      // Avoid a remote process for every other image on each maintenance pass.
+      if(!/alpine/i.test(current.image||'')&&!/alpine/i.test(remote.config['image.os']||''))return true
+      const result=await exec(client.withMaintenanceDatabase(tx),row.incusId,
+        ['/bin/sh','-c',`set -eu\n${alpineGuestDnsRepairScript}`],{},18000) as {return?:number}
+      if(result?.return!==0)throw Error('POOL_GUEST_DNS_REPAIR_PENDING')
+      return true
+    }
     const roots=Object.entries(remote.devices||{}).filter(([,d])=>d.type==='disk'&&d.path==='/')
     if(roots.length!==1)return false
     const config:Record<string,string>={},devices:Record<string,Record<string,string>>={}
@@ -61,7 +83,7 @@ export async function reconcilePoolInstanceResources(instanceId: number): Promis
       (config['limits.memory']&&checked.config?.['limits.memory']!==config['limits.memory'])||
       (devices[roots[0][0]]&&checked.devices?.[roots[0][0]]?.size!==devices[roots[0][0]].size))throw Error('POOL_RESOURCE_CORRECTION_UNCONFIRMED')
     return true
-  },{maxWait:2000,timeout:20000})
+  },{maxWait:2000,timeout:kind==='dns'?30000:20000})
 }
 
 export async function poolResourceGuestInstructions(hostId:number) {
@@ -85,7 +107,11 @@ async function scan(){
   if(recoveryHeld())return
   const rows=await prisma.instance.findMany({where:{id:{gt:cursor},dedicatedIpv4:true,status:{in:['running','stopped']},host:{singleTenant:true,status:'online'}},select:{id:true},orderBy:{id:'asc'},take:20})
   if(!rows.length){cursor=0;return}
-  for(const row of rows){if(stopped)return;cursor=row.id;try{await reconcilePoolInstanceResources(row.id)}catch{console.warn(`[PoolResources] 实例 #${row.id} 限额核验待重试`)}}
+  for(const row of rows){
+    if(stopped)return;cursor=row.id
+    try{await reconcilePoolInstanceResources(row.id)}catch{console.warn(`[PoolResources] 实例 #${row.id} 限额核验待重试`)}
+    try{await reconcilePoolInstanceDns(row.id)}catch{console.warn(`[PoolResources] 实例 #${row.id} DNS 核验待重试`)}
+  }
 }
 export function startPoolResourceReconciliation(){if(!stopped)return;stopped=false;const tick=()=>{active=scan().catch(()=>console.warn('[PoolResources] 扫描待重试')).finally(()=>{active=undefined;if(!stopped){timer=setTimeout(tick,30000);timer.unref()}})};timer=setTimeout(tick,10000);timer.unref()}
 export async function stopPoolResourceReconciliation(){stopped=true;clearTimeout(timer);await active}

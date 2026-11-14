@@ -21,7 +21,7 @@ const { reconcileInterruptedReinstalls, reconcileExpiredRebuild } = await import
 const { assertRebuildBootReady } = await import('../src/lib/instance-rebuild-state.js')
 const { requestInstanceDeletion } = await import('../src/services/instance-deletion.js')
 const { encryptSensitiveData } = await import('../src/lib/security.js')
-const { reconcilePoolInstanceResources } = await import('../src/services/pool-resource-reconciliation.js')
+const { reconcilePoolInstanceResources, reconcilePoolInstanceDns } = await import('../src/services/pool-resource-reconciliation.js')
 const { incusCompatibilityPermit }=await import('../src/services/incus-compatibility.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const tag = 'reinstall-' + randomUUID().slice(0, 8), root = await mkdtemp(join(tmpdir(), tag))
@@ -76,6 +76,12 @@ const remote = createServer({ key: await readFile(keyPath), cert, ca: cert, requ
     if (!guest) return fail(404, 'not found')
     if (suffix.startsWith('/snapshots')) return ok([])
     if (suffix.startsWith('/files?')) return ok()
+    if(suffix==='/exec'&&method==='POST'){
+      assert.equal(guest.status,'Running')
+      assert.deepEqual(body.command.slice(0,2),['/bin/sh','-c'])
+      assert.ok(body.command[2].includes('PayIncus recovered DHCP resolver'))
+      return ok({return:0})
+    }
     if (suffix === '/rebuild') {
       assert.equal(guest.config['security.privileged'], 'false')
       if (mode === 'lost-response') return fail(500, 'fixture rebuild response lost')
@@ -120,6 +126,7 @@ try {
   for (const taskType of ['rebuild', 'recreate', 'clone', 'change_host'] as const) for (const scenario of ['success', 'unknown-original', 'wrong-uuid', 'wrong-type', 'lost-response', 'cleanup-refused', 'alien-target', 'actor-revoked', 'late-cancel', 'lost-waiter', 'legacy-marker', 'dual-stack', 'running-source', 'vm-macs', 'public-ipv4', 'public-vm', 'failed-operation', 'failed-envelope', 'expired-missing', 'expired-busy', 'expired-success', 'expired-malformed', 'expired-wrong-uuid', 'retired-completed']) {
     if ((scenario.startsWith('expired-') || scenario.startsWith('failed-') || scenario === 'retired-completed') && taskType !== 'rebuild') continue
     if (process.env.REVIEW_REINSTALL_SCOPE === 'pool-cleanup' && (taskType !== 'recreate' || scenario !== 'cleanup-refused')) continue
+    if (process.env.REVIEW_REINSTALL_SCOPE === 'pool-dns' && (taskType !== 'rebuild' || scenario !== 'success')) continue
     if (['public-ipv4', 'public-vm'].includes(scenario) && !['rebuild', 'recreate'].includes(taskType)) continue
     if (['lost-waiter', 'legacy-marker'].includes(scenario) && taskType !== 'rebuild' || scenario === 'dual-stack' && taskType !== 'clone') continue
     if (scenario === 'running-source' && taskType !== 'change_host') continue
@@ -211,6 +218,22 @@ try {
       assert.equal(await reconcilePoolInstanceResources(instance.id),false,'missing creation time cannot accept another endpoint')
       await prisma.instance.update({where:{id:instance.id},data:{snapshottedSpecs:oldSpecs as any}})
       guest.config['limits.memory']=`${instance.memory}MiB`;guest.devices.root.size=`${instance.disk}MiB`
+      const dnsWrites=()=>calls.filter(call=>call===`POST /1.0/instances/${originalName}/exec`).length
+      assert.equal(await reconcilePoolInstanceDns(instance.id),false,'stopped guest is never started for DNS repair')
+      guest.status='Running'
+      guest.config['image.os']='Alpine'
+      await prisma.instance.update({where:{id:instance.id},data:{status:'running'}})
+      assert.equal(await reconcilePoolInstanceDns(instance.id),true,'both architectures repair through the same enrolled host without requiring IPv6')
+      const dnsCount=dnsWrites()
+      guest.config['volatile.uuid']=randomUUID()
+      assert.equal(await reconcilePoolInstanceDns(instance.id),false,'DNS repair cannot touch another guest under a reused name')
+      guest.config['volatile.uuid']=uuid
+      await prisma.instance.update({where:{id:instance.id},data:{expiresAt:new Date(Date.now()-1000)}})
+      assert.equal(await reconcilePoolInstanceDns(instance.id),false,'DNS maintenance must not delay expiry stop')
+      assert.equal(dnsWrites(),dnsCount)
+      await prisma.instance.update({where:{id:instance.id},data:{status:'stopped',expiresAt:instance.expiresAt}})
+      guest.status='Stopped'
+      delete guest.config['image.os']
       await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedIpv4: false } })
       await prisma.host.update({ where: { id: host.id }, data: { singleTenant: savedHost.singleTenant } })
     }

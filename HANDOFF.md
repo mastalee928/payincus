@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2026-11-14 owner再次要求DNS覆盖现有及未来全部宿主，已记OWNER_REQUIREMENTS。复查补IPv4-only：原IPv6入口之外，全部池实例后台游标维护及正常交付/停启调用同一修复，资源/DNS异常分别处理，原UUID/受信宿主/并发任务/到期保持。新增双架构PG/mTLS池维护、错UUID/到期/Stopped拒绝与完整重装换机回归104任务全部过；最终scope补测两架构过，后端build/types及交付/IPv6守卫过。DNS基础5c8d966c两架构TinyCloud真实旧双客户端/空DNS恢复+两次停启与原密码/密钥/自定义symlink保留均success，12compat/Agent/Alpine均success，完整CI和预览尚待尾段；本次全池入口改变来源，须新同来源原生/预览。目标仍preview-70f75c6，无在途任务，34在线/新daemon verified/BBR全部applied，24空库存可售；#38Stopped、#42DNS待新候选自动修，未正式发行。
+
 - 2026-11-14 ARM终轮1.0.13矩阵在2/24后停止：#42 Alpine3.21 TinyCloud停启后IPv6探针78，SSH key交换正常但DNS两端curl exit6；实际/etc/resolv.conf为空、DHCP lease仍含正确nameserver，两个dhcpcd（ifupdown eth0与旧生成器添加global default）抢同接口/状态。新源码停止为新客机添加global dhcpcd，安装发行版openresolv聚合；旧程序标记+DHCP eth0才移除旧启动链接（不停止运行进程），仅空普通resolver从当前lease恢复，已有nameserver/符号链接不覆盖，并按可信生成标记补resolver聚合。新增TinyCloud双架构真实旧缺包/重复客户端/空DNS恢复→两次停启/DNS/原SSH与客户symlink保留。类型与交付/IPv6守卫通过，新原生/完整候选及目标实证待。另5384edbe的#38缺卷配置修复12原生全部success，仍未现场热更新此新来源；正式未发行。
 
 - 2026-11-14 03:15 UTC现场续验：候选47成功运行preview-70f75c6（备份/opt/incudal.bak.20261114030410），同来源CI43546551675最终29/29success，34/34宿主Agent1.0.13及新Incus hash均verified/online/无poolFaulted。#38复验任务666在rebuild_configuring失败：旧失败已删volume DB及instance symlink，配置PUT的UpdateBackupFile先查pool而返回404；尚未执行新重建，原UUID/账期/价格保持。新增候选Agent1.0.14仅在Stopped非snapshot、精确pool404且Lstat实例路径确实不存在时将缺备份归类为fs.ErrNotExist，沿原Update处理；链接仍存在/运行/其它错误不忽略。原生夹具补缺volume记录及链接的真实配置PUT→rebuild→启动/同UUID/sysinfo/backup.yaml，原非空目录拒绝保持。本地补丁hash/双架构Go vet与编译、host-tools已过，新原生/候选包/现场恢复仍待。ARM当前1.0.13全镜像复验已开始；AMD矩阵未开始，#38仍Stopped。正式发行未执行。
