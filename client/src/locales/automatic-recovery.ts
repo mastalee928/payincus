@@ -1,4 +1,11 @@
 export const zhCN = {
+  verify: '核验',
+  verifying: '正在请求…',
+  verifyRequested: '已请求立即核验，结果将在此处自动更新。',
+  verifyEmpty: '正在确认实例、磁盘、快照和转发已清理，并检查宿主是否可重新出售。',
+  tools: '宿主工具检查尚未通过，系统将自动补齐并重新核验。',
+  setup: '宿主接入尚未完成，系统将继续处理并重新核验。',
+  verifyFailed: '核验请求未成功，请重试。原后台任务仍会继续。',
   title: '自动恢复进度',
   description: '系统在后台处理并核验结果，关闭此窗口也会继续。',
   checking: '系统正在自动检查和处理。',
@@ -14,6 +21,13 @@ export const zhCN = {
   pending: '系统正在继续核验，机器保持隔离，任务将自动重试。',
 }
 export const zhTW = {
+  verify: '核驗',
+  verifying: '正在請求…',
+  verifyRequested: '已請求立即核驗，結果將在此處自動更新。',
+  verifyEmpty: '正在確認實例、磁碟、快照和轉發已清理，並檢查宿主是否可重新出售。',
+  tools: '宿主工具檢查尚未通過，系統將自動補齊並重新核驗。',
+  setup: '宿主接入尚未完成，系統將繼續處理並重新核驗。',
+  verifyFailed: '核驗請求未成功，請重試。原背景任務仍會繼續。',
   title: '自動恢復進度',
   description: '系統在背景處理並核驗結果，關閉此視窗也會繼續。',
   checking: '系統正在自動檢查和處理。',
@@ -29,6 +43,13 @@ export const zhTW = {
   pending: '系統正在繼續核驗，機器保持隔離，任務將自動重試。',
 }
 export const en = {
+  verify: 'Verify',
+  verifying: 'Requesting…',
+  verifyRequested: 'Immediate verification requested. Results will update here automatically.',
+  verifyEmpty: 'Checking that instances, disks, snapshots and forwarding are cleared and the host is ready for resale.',
+  tools: 'Host tool checks are pending. The system will prepare the tools and verify them again.',
+  setup: 'Host setup is incomplete. Automatic setup and verification will continue.',
+  verifyFailed: 'Verification could not be requested. Try again; the existing background task will continue.',
   title: 'Automatic recovery progress',
   description: 'Processing and verification continue in the background, even after this window closes.',
   checking: 'Automatic checks and processing are in progress.',

@@ -20,7 +20,7 @@ import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js
 import { sendNotification, sendHostManagedInstanceNotification } from '../lib/notifier.js'
 import { sendReleaseNotification } from '../lib/release-notifier.js'
 import { closeInstanceSessions } from '../lib/terminal-proxy.js'
-import { poolCleanupRecord, readPoolCleanup } from './host-pool-cleanup.js'
+import { poolCleanupRecord, readPoolCleanup, processPoolCleanup } from './host-pool-cleanup.js'
 import { recoveryScope, type RecoveryInstance } from './host-pool-recovery.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { reverseInstanceAffCommissionForRefund } from '../routes/instance-destroy.js'
@@ -284,6 +284,7 @@ export async function processInstanceDeletion(instanceId: number, connect = getI
   // A notification transport cannot roll back or replay a completed deletion/refund.
   if (completed) {
     const { instance, host, state } = completed
+    if (host.singleTenant) void processPoolCleanup(host.id, connect).catch(() => console.warn(`[InstanceDeletion] Host #${host.id} recovery remains queued`))
     if (!state.refundPending) void sendNotification(instance.userId, state.adminRefundType ? 'instance_deleted_refunded' : state.reason ? 'instance_deleted_by_host_owner' : 'instance_deleted', {
       refundAmount: state.refundAmount || 0, refundType: state.adminRefundType === 'full' ? '全额退款' : '按剩余价值退款', reason: state.reason,
       instanceName: instance.name, hostName: host.name, ...(state.reason ? { deleteReason: state.reason } : {}) }).catch(() => {})

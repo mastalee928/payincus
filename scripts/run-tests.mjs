@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:host-recovery-ui', 'requires Chrome/Edge and local Vue fixture; real recovery dialog request, stale receipt, retry, keyboard and desktop/mobile layout'],
   ['test:pool-disk-preparation', 'requires isolated local PostgreSQL and pinned mTLS; real empty host conversion, occupied protection and lost-response continuation'],
   ['test:system-image-transport', 'requires OpenSSL; isolated mTLS official image multipart, dual architecture, concurrent import, offline cache reuse and retired-image rejection'],
   ['test:expiry-enforcement-regressions', 'requires empty local *_expiry_test PostgreSQL and OpenSSL; real expiry worker, PAT, terminal WebSocket, stop/delete, plan/lease/lane failures and renewal restoration'],

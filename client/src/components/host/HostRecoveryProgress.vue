@@ -9,7 +9,9 @@ function reasonText(reason: string) {
   const key = /RECOVERY_HELD/.test(value) ? 'protected'
     : /AUTHORITY|AUTHORIZATION/.test(value) ? 'authority'
     : /BUSY|TASK/.test(value) ? 'busy'
-    : /DISK|VOLUME|SNAPSHOT/.test(value) ? 'storage'
+    : /TOOLS/.test(value) ? 'tools'
+    : /SETUP|NOT-READY/.test(value) ? 'setup'
+    : /DISK|STORAGE|VOLUME|SNAPSHOT/.test(value) ? 'storage'
     : /IDENTITY|UNKNOWN|PROJECT|EVIDENCE|MISMATCH/.test(value) ? 'identity'
     : /OFFLINE|UNREACHABLE|CONNECT/.test(value) ? 'connection'
     : /NETWORK|FORWARD|PROTOCOL/.test(value) ? 'network' : 'pending'
@@ -29,8 +31,8 @@ function reasonText(reason: string) {
       <p v-if="!report.quarantined" class="text-themed-muted">{{ t('hostPoolOps.recovery.preserve') }}</p>
     </template>
     <template v-else-if="report.automaticCleanup">
-      <p class="font-medium text-themed">{{ t('hostPoolOps.recovery.auto.' + report.automaticCleanup.status) }}</p>
-      <p v-if="report.automaticCleanup.status !== 'done'" class="text-themed-muted">{{ t('hostPoolOps.recovery.auto.description') }}</p>
+      <p class="font-medium text-themed">{{ t(report.automaticCleanup.kind === 'verify_empty' && report.automaticCleanup.status !== 'done' ? 'automaticRecovery.checking' : 'hostPoolOps.recovery.auto.' + report.automaticCleanup.status) }}</p>
+      <p v-if="report.automaticCleanup.status !== 'done'" class="text-themed-muted">{{ t(report.automaticCleanup.kind === 'verify_empty' ? 'automaticRecovery.verifyEmpty' : 'hostPoolOps.recovery.auto.description') }}</p>
       <p v-if="report.automaticCleanup.nextAttemptAt && report.automaticCleanup.status !== 'done'" class="text-themed-muted">{{ t('hostPoolOps.recovery.auto.next', { time: new Date(report.automaticCleanup.nextAttemptAt).toLocaleString() }) }}</p>
       <p v-if="report.automaticCleanup.error" class="break-words text-amber-700 dark:text-amber-300">{{ [...new Set(report.automaticCleanup.error.split(',').map(reasonText))].join('；') }}</p>
     </template>

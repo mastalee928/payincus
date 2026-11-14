@@ -353,6 +353,7 @@ jobs:
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
           pnpm --filter server test:host-pool-cleanup-integration
+          pnpm --filter server test:host-pool-recovery-integration
           pnpm --filter server test:host-management-repair-integration
           pnpm --filter server test:host-install-session-integration
           pnpm --filter server test:host-replacement-recovery-integration
@@ -1163,6 +1164,7 @@ jobs:
         run: |
           pnpm --filter server test:gateway-abuse-ui
           node scripts/test-host-protocol.mjs
+          node scripts/test-host-recovery.mjs
       - name: Gateway management identity on first external setup and restore
         working-directory: server
         run: sudo env DATABASE_URL="$DATABASE_URL" "$(command -v node)" --import tsx scripts/test-gateway-domain-key-integration.ts

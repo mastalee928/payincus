@@ -12,6 +12,7 @@ process.env.NODE_ENV = 'test'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { recoverFailedReplacement, recoverFailedReplacementSources } = await import('../src/services/host-replacement-recovery.js')
 const { inspectHostRecovery } = await import('../src/services/host-pool-recovery.js')
+const { requestHostRecoveryCheck, processHostRecoveryCheck } = await import('../src/services/host-pool-cleanup.js')
 const { PORT_PROTOCOL_CAPABILITY } = await import('../src/services/host-port-protocol.js')
 const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
 const { customerIpv6View } = await import('../src/lib/host-public-ipv6.js')
@@ -128,8 +129,12 @@ try {
       const count = calls.length
       await recoverFailedReplacement(value.task.id, connect); assert.equal(calls.length, count, 'retry backoff prevents repeated remote work')
       const latest = (await prisma.instanceTask.findUniqueOrThrow({ where: { id: value.task.id } })).replacementState as any
-      await prisma.instanceTask.update({ where: { id: value.task.id }, data: { replacementState: { ...latest, sourceRecovery: { ...latest.sourceRecovery, nextAttemptAt: new Date(0).toISOString() } } } })
-      fault = ''; await recoverFailedReplacement(value.task.id, connect)
+      await requestHostRecoveryCheck(value.host.id, { id: admin.id, sid: 'source-recovery-fixture', iat: Math.floor(Date.now() / 1000) })
+      assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: value.host.id } })).poolCleanup, null, 'manual wake must retain the source recovery path')
+      const requested = (await prisma.instanceTask.findUniqueOrThrow({ where: { id: value.task.id } })).replacementState as any
+      assert.equal(requested.sourceRecovery.attempts, latest.sourceRecovery.attempts)
+      assert.equal(requested.sourceHostIdentity, latest.sourceHostIdentity)
+      fault = ''; await processHostRecoveryCheck(value.host.id, connect)
       assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: value.host.id } })).poolFaulted, false)
     }
     if (['host-changed', 'revoked-admin', 'later-task'].includes(mode)) {

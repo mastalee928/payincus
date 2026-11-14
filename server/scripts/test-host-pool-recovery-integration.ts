@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import { randomUUID } from 'node:crypto'
 import Fastify from 'fastify'
 
@@ -26,14 +27,15 @@ async function makeHost(poolFaulted = true) {
     memoryUsed: poolFaulted ? 768 : 0, diskUsed: poolFaulted ? 30720 : 0,
     natPublicIp: `192.0.2.${id}`, natBindIp: `10.0.0.${id}`, natPortStart: 20000, natPortEnd: 30000,
     portProtocol: 'tcp_udp', portProtocolRevision: 1, portProtocolApplied: 'tcp_udp', portProtocolAppliedRevision: 1,
-    agent: { create: { agentId: `${prefix}-${id}`, secretHash: 'unused', secretEncrypted: 'unused', lastSeenAt: new Date(), capabilities: [PORT_PROTOCOL_CAPABILITY] } },
+    agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]), agentId: `${prefix}-${id}` } },
     storagePools: { create: { name: 'default', driver: 'lvm', purpose: 'instance_data', config: { 'volume.block.filesystem': 'btrfs' } } }
   } })
 }
 const app = Fastify()
 app.decorate('authenticateAdmin', async (request: any, reply: any) => {
   if (request.headers['x-test-role'] !== 'admin') return reply.code(403).send({ code: 'FORBIDDEN' })
-  request.user = { id: owner.id, username: owner.username, role: 'admin' }
+  request.user = { id: request.headers['x-test-actor'] === 'buyer' ? buyer.id : owner.id,
+    username: owner.username, role: 'admin', sid: 'recovery-route-fixture', iat: Math.floor(Date.now() / 1000) }
 })
 await app.register(routes)
 let failure: unknown
@@ -269,6 +271,17 @@ try {
     assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: emptyHost.id } })).poolFaulted, false)
     assert.equal(await prisma.log.count({ where: { userId: owner.id, action: 'host.pool.recovery_start',
       content: { contains: `host #${emptyHost.id};` } } }), 1)
+    await prisma.host.update({ where: { id: emptyHost.id }, data: { poolFaulted: true } })
+    const endpoint = `/inventory/${emptyHost.id}/recovery/check`
+    assert.equal((await app.inject({ method: 'POST', url: endpoint })).statusCode, 403)
+    assert.equal((await app.inject({ method: 'POST', url: endpoint, headers: { 'x-test-role': 'admin', 'x-test-actor': 'buyer' } })).statusCode, 403)
+    const accepted = await app.inject({ method: 'POST', url: endpoint, headers: { 'x-test-role': 'admin' } })
+    assert.equal(accepted.statusCode, 202); assert.equal(accepted.json().accepted, true)
+    for (let check = 0; check < 100 && (await prisma.host.findUniqueOrThrow({ where: { id: emptyHost.id } })).poolFaulted; check++) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: emptyHost.id } })).poolFaulted, false, 'route wakes verification without waiting for a periodic scan')
+    console.log('PASS recovery POST authorizes current administrator and actually wakes the requested host')
     console.log(`Host pool default connector and durable audit passed with DB_POOL_MAX=${process.env.DB_POOL_MAX || 'default'}`)
   } finally {
     await closeAllClients()

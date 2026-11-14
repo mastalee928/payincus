@@ -4,7 +4,7 @@ import { PublicIpSyncError } from '../lib/host-public-ip.js'
 import { publicIpv6View, syncHostPublicIpv6 } from '../services/host-public-ipv6-sync.js'
 import { PublicIpv6SyncError } from '../lib/host-public-ipv6.js'
 import { HostRecoveryError, inspectHostRecovery, recoverPoolHost } from '../services/host-pool-recovery.js'
-import { retryPoolCleanup } from '../services/host-pool-cleanup.js'
+import { retryPoolCleanup, requestHostRecoveryCheck, processHostRecoveryCheck } from '../services/host-pool-cleanup.js'
 import { managementRepairView } from '../services/host-management-repair.js'
 import { hardeningPublicView } from '../lib/hardening-view.js'
 import { hardeningReceiptMatches, hardeningStockSelect } from '../lib/hardening-identity.js'
@@ -278,6 +278,22 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
     reply.header('Cache-Control', 'no-store')
     await retryPoolCleanup(Number(request.params.id), request.user.id)
     return { success: true }
+  })
+  fastify.post<{ Params: { id: number } }>('/inventory/:id/recovery/check', {
+    onRequest: [fastify.authenticateAdmin], schema: hostIdSchema,
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    const hostId = Number(request.params.id)
+    try { await requestHostRecoveryCheck(hostId, request.user) }
+    catch (error) {
+      const code = error instanceof Error && /^(RECOVERY_CHECK_[A-Z_]+|HOST_NOT_FOUND|PLATFORM_RECOVERY_HELD)$/.test(error.message)
+        ? error.message : 'RECOVERY_CHECK_FAILED'
+      return reply.code(code === 'RECOVERY_CHECK_FORBIDDEN' ? 403 : code === 'HOST_NOT_FOUND' ? 404 : 409).send({ code })
+    }
+    // Wake immediately; closing the browser must not cancel the durable task.
+    void processHostRecoveryCheck(hostId).catch(() => request.log.warn({ hostId }, 'Requested host recovery will retry'))
+    return reply.code(202).send({ accepted: true })
   })
   fastify.post<{ Params: { id: number }; Body: { confirmation: string; acknowledgeCleanup: boolean } }>('/inventory/:id/recover', {
     onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 20, timeWindow: '1 minute' } },

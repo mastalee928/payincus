@@ -154,7 +154,7 @@ export interface HostPublicIpv6Sync {
 }
 export interface HostRecoveryReport {
   automaticSourceRecovery?: { status: 'pending' | 'retry' | 'done'; nextAttemptAt?: string; error?: string }
-  automaticCleanup?: { status: 'pending' | 'retry' | 'blocked' | 'done'; attempts: number; nextAttemptAt?: string; error?: string }
+  automaticCleanup?: { status: 'pending' | 'retry' | 'blocked' | 'done'; kind?: string; attempts: number; nextAttemptAt?: string; error?: string }
   mode?: 'empty' | 'preserve'
   hostId: number
   quarantined: boolean

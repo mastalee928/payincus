@@ -3812,6 +3812,7 @@ hostOnboarding: {
     getPublicIp: (id: number): Promise<import('@/types/host-pool').HostPublicIpSync> => http.get(`/host-onboarding/inventory/${id}/public-ip`),
     syncPublicIp: (id: number, settings?: import('@/types/host-pool').HostPublicIpSettings): Promise<import('@/types/host-pool').HostPublicIpSync> => http.post(`/host-onboarding/inventory/${id}/public-ip/sync`, { settings }, { timeout: 150000 }),
     inspectRecovery: (id: number): Promise<import('@/types/host-pool').HostRecoveryReport> => http.get(`/host-onboarding/inventory/${id}/recovery`, { timeout: 65000 }),
+    checkRecoveryNow: (id: number): Promise<{accepted:true}> => http.post(`/host-onboarding/inventory/${id}/recovery/check`),
     retryCleanup: (id: number): Promise<{ success: true }> => http.post(`/host-onboarding/inventory/${id}/retry-cleanup`),
     recover: (id: number, data: { confirmation: string; acknowledgeCleanup: boolean }): Promise<{ success: boolean }> => http.post(`/host-onboarding/inventory/${id}/recover`, data, { timeout: 65000 }),
     replacementOptions: (id: number, allRegions = false): Promise<{ hosts: Array<{ id: number; name: string; natPublicIp: string | null; countryCode: string | null; regionGroupEntry: { name: string } | null }>; backups: Array<{ id: number; remoteFileName: string | null; finishedAt: string | null }>; task: { id: number; status: string; progress: string | null; error: string | null } | null }> => http.get(`/instances/${id}/replacement-options`, { params: { allRegions } }),

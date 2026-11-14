@@ -90,6 +90,7 @@
     "test:review-inventory-spec": "node ../scripts/test-inventory-spec.mjs",
     "test:host-port-protocol-update": "tsx scripts/test-host-port-protocol-update.ts",
     "test:host-port-protocol-ui": "node ../scripts/test-host-protocol.mjs",
+    "test:host-recovery-ui": "node ../scripts/test-host-recovery.mjs",
     "test:review-order-reads": "node ../scripts/test-order-reads.mjs",
     "test:review-host-config-submit": "node ../scripts/test-host-config-submit.mjs",
     "test:review-host-config-type": "node ../scripts/test-host-config-submit.mjs --type-error-only",

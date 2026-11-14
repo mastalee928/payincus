@@ -24,11 +24,12 @@ type Forward = { listen_address: string; description: string; config: Record<str
 type Residue = { name: string; status: string; removable: boolean }
 
 export type RecoveryBlocker = 'not-quarantined' | 'assigned' | 'busy' | 'offline' | 'agent-offline' |
-  'not-ready' | 'protocol-pending' | 'capacity' | 'unreachable' | 'projects' | 'unknown-instance' |
+  'not-ready' | 'tools-pending' | 'storage-pending' | 'setup-pending' | 'network-pending' |
+  'protocol-pending' | 'capacity' | 'unreachable' | 'projects' | 'unknown-instance' |
   'running-instance' | 'unknown-forward' | 'volumes' | 'assigned-mismatch' | 'assigned-not-ready'
 export interface HostRecoveryReport {
   automaticSourceRecovery?: { status: 'pending' | 'retry' | 'done'; nextAttemptAt?: string; error?: string }
-  automaticCleanup?: { status: 'pending' | 'retry' | 'blocked' | 'done'; attempts: number; nextAttemptAt?: string; error?: string }
+  automaticCleanup?: { status: 'pending' | 'retry' | 'blocked' | 'done'; kind?: string; attempts: number; nextAttemptAt?: string; error?: string }
   hostId: number
   quarantined: boolean
   checkedAt: string
@@ -115,11 +116,12 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
   if (host.installPending || hostMaintenanceBlocked(host.securityHardening)) blockers.add('busy')
   if (host.status !== 'online') blockers.add('offline')
   if (!host.agent?.enabled || !host.agent.lastSeenAt || host.agent.lastSeenAt.getTime() < Date.now() - 90000) blockers.add('agent-offline')
-  if (!hostProvisioningToolsReady(host.agent)) blockers.add('not-ready')
+  if (!hostProvisioningToolsReady(host.agent)) blockers.add('tools-pending')
   if (!host.singleTenant || !host.isInstalled || !['container', 'both'].includes(host.instanceType) ||
-      !host.natPublicIp || !host.natBindIp || !host.storagePools.some(pool => pool.purpose === 'instance_data') ||
-      (host.onboardingNode && host.onboardingNode.status !== 'succeeded') ||
-      !Array.isArray(host.agent?.capabilities) || !host.agent.capabilities.includes(PORT_PROTOCOL_CAPABILITY)) blockers.add('not-ready')
+      (host.onboardingNode && host.onboardingNode.status !== 'succeeded')) blockers.add('setup-pending')
+  if (!host.storagePools.some(pool => pool.purpose === 'instance_data')) blockers.add('storage-pending')
+  if (!host.natPublicIp || !host.natBindIp || !Array.isArray(host.agent?.capabilities) ||
+      !host.agent.capabilities.includes(PORT_PROTOCOL_CAPABILITY)) blockers.add('network-pending')
   if (portProtocolView(host).status !== 'applied') blockers.add('protocol-pending')
   // Old resource counters are corrected only after remote emptiness is verified.
   if (!poolCapacityReady({ ...host, cpuUsed: 0, memoryUsed: 0, diskUsed: 0 })) blockers.add('capacity')
@@ -198,8 +200,9 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
       instances = remoteInstances
       if (projects.some(project => project.name !== 'default')) blockers.add('projects')
       if (['running', 'pending', 'cancelling'].some(key => operations[key]?.length)) blockers.add('busy')
-      if (!networks.some(network => network.name === 'incusbr0' && network.managed && network.type === 'bridge') ||
-          host.storagePools.some(pool => pool.purpose === 'instance_data' && !pools.some(remote => remote.name === pool.name && remote.status === 'Created'))) blockers.add('not-ready')
+      if (!networks.some(network => network.name === 'incusbr0' && network.managed && network.type === 'bridge')) blockers.add('network-pending')
+      if (host.storagePools.some(pool => pool.purpose === 'instance_data' &&
+          !pools.some(remote => remote.name === pool.name && remote.status === 'Created'))) blockers.add('storage-pending')
       for (const network of networks.filter(network => network.managed && network.type === 'bridge')) {
         const rows = await client.request<Forward[]>('GET', `/1.0/networks/${encodeURIComponent(network.name)}/forwards?recursion=1`)
         forwards.push(...rows.map(row => ({ ...row, network: network.name })))
@@ -280,7 +283,7 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
     forwardCount: preserve ? 0 : forwards.length, needsCleanup: !preserve && (instances.length > 0 || forwards.length > 0),
     canRecover: blockers.size === 0, confirmation: ''
   }
-  const cleanup = host.poolCleanup as { version?: number; status?: string; attempts?: number; nextAttemptAt?: string; error?: string } | null
+  const cleanup = host.poolCleanup as { version?: number; kind?: string; status?: string; attempts?: number; nextAttemptAt?: string; error?: string } | null
   const failedSource = history.filter(task => task.status === 'FAILED' && (task.replacementState as Record<string, unknown> | null)?.stage === 'cleaned' &&
     (task.replacementState as Record<string, unknown> | null)?.sourceHostId === hostId && task.instance.hostId === hostId)
     .sort((a, b) => b.id - a.id)[0]
@@ -292,7 +295,7 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
   }
   if (cleanup?.version === 1 && ['pending', 'retry', 'blocked', 'done'].includes(cleanup.status || '') &&
       (!host.poolFaulted || cleanup.status !== 'done')) {
-    report.automaticCleanup = { status: cleanup.status as 'pending' | 'retry' | 'blocked' | 'done', attempts: cleanup.attempts || 0,
+    report.automaticCleanup = { status: cleanup.status as 'pending' | 'retry' | 'blocked' | 'done', kind: cleanup.kind, attempts: cleanup.attempts || 0,
       nextAttemptAt: cleanup.nextAttemptAt, error: cleanup.error }
   }
   // Bind confirmation to the displayed state; never trust names supplied by a browser.

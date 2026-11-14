@@ -10,6 +10,8 @@ import { recoveryHeld } from './platform-backup-core.js'
 import { inspectPoolRecovery, recoveryScope, type RecoveryInstance } from './host-pool-recovery.js'
 import { redactAuditText } from '../lib/risk-audit.js'
 import { automaticOperationAudit } from '../lib/automatic-operation-audit.js'
+import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
+import { recoverFailedReplacementSources } from './host-replacement-recovery.js'
 
 export type PoolCleanup = {
   version: 1; kind: 'replacement' | 'failed_target' | 'verify_empty'; name: string; actorId: number; hostIdentity: string; revision: string
@@ -37,10 +39,53 @@ export function completedPoolReinspection(state: PoolCleanup): PoolCleanup {
     status: 'pending', attempts: 0 }
 }
 const json = (state: PoolCleanup) => state as unknown as Prisma.InputJsonValue
-const retryable = new Set(['offline', 'agent-offline', 'busy', 'unreachable', 'protocol-pending'])
+const retryable = new Set(['offline', 'agent-offline', 'busy', 'unreachable', 'protocol-pending', 'not-ready',
+  'tools-pending', 'storage-pending', 'setup-pending', 'network-pending'])
 class CleanupBlocked extends Error {}
 class CleanupWaiting extends Error {}
 let running = false
+const activeHosts = new Map<number, Promise<void>>()
+
+/** A button may wake the original recovery, never replace its deletion authority. */
+export async function requestHostRecoveryCheck(hostId: number, actor: WriteActor): Promise<void> {
+  if (recoveryHeld()) throw Error('PLATFORM_RECOVERY_HELD')
+  await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
+    if (!await authorizeUserWrite(tx, actor.id, actor) ||
+      (await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } }))?.role !== 'admin') throw Error('RECOVERY_CHECK_FORBIDDEN')
+    const host = await tx.host.findUnique({ where: { id: hostId } })
+    if (!host || !host.singleTenant) throw Error('HOST_NOT_FOUND')
+    if (!host.poolFaulted) return
+    const current = readPoolCleanup(host.poolCleanup)
+    if ((host.poolCleanup !== null && !current) || current?.recoverySupersededBy) throw Error('RECOVERY_CHECK_RETAINED_DATA')
+    const state = current?.status === 'done' ? completedPoolReinspection(current) : current
+    if (state && state.hostIdentity !== transferHostIdentity(host)) throw Error('RECOVERY_CHECK_IDENTITY_CHANGED')
+    if (recoveryHeld()) throw Error('PLATFORM_RECOVERY_HELD')
+    const now = new Date().toISOString()
+    if (state) await tx.host.update({ where: { id: hostId }, data: { poolCleanup: json({ ...state, nextAttemptAt: now }) } })
+    else {
+      // A historical source recovery needs its original delivery proof. Do not
+      // replace it with verify_empty, which would prevent that worker resuming.
+      const tasks = await tx.instanceTask.findMany({ where: { taskType: 'replace_host', status: 'FAILED',
+        instance: { hostId, dedicatedNetworkReady: false, dedicatedIpv4: true },
+        replacementState: { path: ['stage'], equals: 'cleaned' } } })
+      for (const task of tasks) {
+        const saved = task.replacementState as Record<string, unknown>
+        const recovery = saved.sourceRecovery as { status?: string } | undefined
+        if (saved.sourceHostId !== hostId || recovery?.status === 'done') continue
+        await tx.instanceTask.updateMany({ where: { id: task.id, replacementState: { equals: task.replacementState! } },
+          data: { replacementState: { ...saved, sourceRecovery: { ...recovery, nextAttemptAt: now } } as Prisma.InputJsonValue } })
+      }
+    }
+    await tx.log.create({ data: { userId: actor.id, module: 'host', action: 'host.pool.verify_requested', result: 'pending',
+      content: `管理员请求立即核验宿主 #${hostId}；保留原恢复任务和身份，核验通过后更新状态` } })
+  }, { maxWait: 2000, timeout: 6000 })
+}
+
+export async function processHostRecoveryCheck(hostId: number, connect = getIncusClient): Promise<void> {
+  await recoverFailedReplacementSources(connect, 5, hostId)
+  await processPoolCleanupQueue(connect, 1, hostId)
+}
 
 /** A verified deletion can release a healthy pool host after read-only empty-host checks.
  * Persist this before the final DB bookkeeping, but never repeat customer deletion here. */
@@ -81,6 +126,13 @@ export async function retryPoolCleanup(hostId: number, actorId: number): Promise
 
 /** Both phases hold the host row; persist the exact remote identity before issuing a stop/delete. */
 export async function processPoolCleanup(hostId: number, connect = getIncusClient): Promise<void> {
+  const existing = activeHosts.get(hostId)
+  if (existing) return existing
+  const work = runPoolCleanup(hostId, connect).finally(() => { activeHosts.delete(hostId) })
+  activeHosts.set(hostId, work)
+  return work
+}
+async function runPoolCleanup(hostId: number, connect = getIncusClient): Promise<void> {
   if (recoveryHeld()) return
   let attempt: PoolCleanup | undefined
   let step = '核对原身份、授权及占用'
@@ -203,7 +255,8 @@ export async function processPoolCleanup(hostId: number, connect = getIncusClien
         if (!latest || latest.status === 'done' || latest.revision !== state.revision || latest.hostIdentity !== state.hostIdentity || latest.name !== state.name || latest.attempts > state.attempts) return
         const message = redactAuditText(error instanceof Error ? error.message : 'REMOTE_CLEANUP_RETRY').slice(0, 400)
         const blocked = error instanceof CleanupBlocked || (!(error instanceof CleanupWaiting) && state.attempts >= 12)
-        const nextAttemptAt = new Date(Date.now() + (blocked ? 30 * 60000 : Math.min(30 * 60000, 30000 * 2 ** Math.min(state.attempts, 6)))).toISOString()
+        const delay = error instanceof CleanupWaiting ? 15000 : blocked ? 30 * 60000 : Math.min(30 * 60000, 30000 * 2 ** Math.min(state.attempts, 6))
+        const nextAttemptAt = new Date(Date.now() + delay).toISOString()
         await tx.host.update({ where: { id: hostId }, data: { poolCleanup: json({ ...state, attempts: error instanceof CleanupWaiting ? latest.attempts : state.attempts, status: blocked ? 'blocked' : 'retry',
           error: message, nextAttemptAt }) } })
         await tx.log.create({ data: { userId: state.actorId, module: 'host', action: 'host.pool.cleanup_retry', result: 'warning',
@@ -216,11 +269,12 @@ export async function processPoolCleanup(hostId: number, connect = getIncusClien
 
 /** Bounded, rotating scan: each failed item retains its own backoff. */
 let cleanupCursor = 0
-export async function processPoolCleanupQueue(connect = getIncusClient, maxTargets = 5): Promise<void> {
-  if (running || recoveryHeld()) return
-  running = true
+export async function processPoolCleanupQueue(connect = getIncusClient, maxTargets = 5, requestedHostId?: number): Promise<void> {
+  if ((!requestedHostId && running) || recoveryHeld()) return
+  if (!requestedHostId) running = true
   try {
-    const hosts = await prisma.host.findMany({ where: { singleTenant: true, poolFaulted: true }, orderBy: { id: 'asc' } })
+    const hosts = await prisma.host.findMany({ where: { singleTenant: true, poolFaulted: true,
+      ...(requestedHostId ? { id: requestedHostId } : {}) }, orderBy: { id: 'asc' } })
     const rotated = [...hosts.filter(host => host.id > cleanupCursor), ...hosts.filter(host => host.id <= cleanupCursor)]
     let processed = 0
     for (const host of rotated) {
@@ -229,7 +283,7 @@ export async function processPoolCleanupQueue(connect = getIncusClient, maxTarge
       if (current?.nextAttemptAt && Date.parse(current.nextAttemptAt) > Date.now()) continue
       if (host.poolCleanup !== null && !current) continue // records-only keeps its explicit retained-data policy
       if (current?.recoverySupersededBy) continue
-      cleanupCursor = host.id
+      if (!requestedHostId) cleanupCursor = host.id
       try {
         let state = current
         if (state?.status === 'done') {
@@ -276,5 +330,5 @@ export async function processPoolCleanupQueue(connect = getIncusClient, maxTarge
       } catch { console.warn(`[HostRepair] Cleanup host #${host.id} will retry; other hosts continue`) }
       if (++processed >= maxTargets) break
     }
-  } finally { running = false }
+  } finally { if (!requestedHostId) running = false }
 }

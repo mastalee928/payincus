@@ -69,7 +69,12 @@ try {
         assert.equal(readDeletionIntent(deleted.deletionIntent)?.status, 'done')
         assert.equal(deleted.deletionBillingPending, false)
         assert.equal(await prisma.balanceLog.count({ where: { instanceId: instance.id } }), 0)
-        await processPoolCleanup(host.id, async () => client)
+        // Completed deletion must wake recovery itself, without the scanner or
+        // a test manually executing the recovery worker.
+        for (let check = 0; check < 200 && (await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolFaulted; check++) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+        assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolFaulted, false)
         console.log('PASS actual durable instance deletion: persisted UUID, running guest/snapshot/forward deletion, PostgreSQL allocation settlement and automatic sale readiness')
       } else {
       await prisma.host.update({ where: { id: host.id }, data: { poolCleanup: poolCleanupRecord(host, 'cleanup-guest', actor.id, new Date(), 1) } })

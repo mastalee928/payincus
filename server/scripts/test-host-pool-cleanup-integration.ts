@@ -13,12 +13,14 @@ process.env.PLATFORM_BACKUP_STATE_DIR = root
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { IncusApiError } = await import('../src/lib/incus/incus-client.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
-const { poolCleanupRecord, processPoolCleanup, processPoolCleanupQueue, readPoolCleanup, queueDeletedPoolHost, retryPoolCleanup } = await import('../src/services/host-pool-cleanup.js')
+const { poolCleanupRecord, processPoolCleanup, processPoolCleanupQueue, readPoolCleanup, queueDeletedPoolHost, retryPoolCleanup,
+  requestHostRecoveryCheck, processHostRecoveryCheck } = await import('../src/services/host-pool-cleanup.js')
 const { deleteInstance } = await import('../src/lib/incus/incus-instances.js')
 const { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE } = await import('../src/lib/host-resource-usage.js')
 const { PORT_PROTOCOL_CAPABILITY } = await import('../src/services/host-port-protocol.js')
 const prefix = `autoclean-${randomUUID().slice(0, 8)}`
 const owner = await prisma.user.create({ data: { username: prefix, role: 'admin', passwordHash: 'test-only' } })
+const session = { id: owner.id, sid: randomUUID(), iat: Math.floor(Date.now() / 1000) }
 let currentHost = 0, remote: any[] = [], forwards: any[] = [], volumes: any[] = [], calls: string[] = []
 let mode = ''
 const connect = async (host: { id: number }) => {
@@ -34,7 +36,7 @@ const connect = async (host: { id: number }) => {
   if (path === '/1.0/projects?recursion=1') return [{ name: 'default' }]
   if (path === '/1.0/networks?recursion=1') return [{ name: 'incusbr0', type: 'bridge', managed: true }]
   if (path === '/1.0/operations?recursion=1') return { running: mode === 'busy' ? [{ id: 'busy' }] : [] }
-  if (path === '/1.0/storage-pools?recursion=1') return [{ name: 'default', status: 'Created' }]
+  if (path === '/1.0/storage-pools?recursion=1') return [{ name: 'default', status: mode === 'storage-pending' ? 'Pending' : 'Created' }]
   if (path.includes('/volumes?')) return structuredClone(volumes)
   if (path.includes('/forwards?')) return structuredClone(forwards)
   if (method === 'DELETE' && path.includes('/forwards/')) {
@@ -167,6 +169,52 @@ try {
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: empty.id } })).poolFaulted, false)
   assert.equal(mutations().length, 0, 'ordinary deletion recovery is read-only')
   console.log('PASS ordinary deletion automatically verifies and releases empty host without repeating deletion')
+
+  for (const fault of ['tools-pending', 'storage-pending', 'setup-pending', 'network-pending']) {
+    const host = await fixture()
+    remote = []; volumes = []; forwards = []; calls = []; mode = fault
+    await prisma.host.update({ where: { id: host.id }, data: {
+      poolCleanup: poolCleanupRecord(host, '', owner.id, new Date()),
+      ...(fault === 'setup-pending' ? { isInstalled: false } : {}),
+      ...(fault === 'network-pending' ? { natBindIp: null } : {})
+    } })
+    if (fault === 'tools-pending') await prisma.hostAgent.update({ where: { hostId: host.id }, data: { lastReport: {} } })
+    await processPoolCleanup(host.id, connect)
+    const waiting = readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolCleanup)!
+    assert.equal(waiting.status, 'retry'); assert.ok(waiting.error?.includes(fault))
+    assert.ok(Date.parse(waiting.nextAttemptAt!) - Date.now() <= 15000, 'temporary readiness must not wait 30 minutes')
+    assert.equal(waiting.attempts, 0, 'temporary checks do not exhaust destructive retry budget')
+    mode = ''
+    await prisma.host.update({ where: { id: host.id }, data: { isInstalled: true, natBindIp: '10.0.0.4' } })
+    if (fault === 'tools-pending') await prisma.hostAgent.update({ where: { hostId: host.id }, data: { lastReport: protectedAgentFixture().lastReport } })
+    await requestHostRecoveryCheck(host.id, session)
+    const requested = readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolCleanup)!
+    assert.equal(requested.revision, waiting.revision); assert.equal(requested.actorId, waiting.actorId)
+    assert.equal(requested.kind, waiting.kind); assert.equal(requested.attempts, waiting.attempts)
+    assert.ok(Date.parse(requested.nextAttemptAt!) <= Date.now())
+    await processHostRecoveryCheck(host.id, connect)
+    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolFaulted, false)
+    assert.equal(mutations().length, 0)
+  }
+  console.log('PASS readiness waits are short, specific, and immediately wakeable without destructive calls')
+
+  const permissionHost = await fixture()
+  const untouched = (await prisma.host.findUniqueOrThrow({ where: { id: permissionHost.id } })).poolCleanup
+  await assert.rejects(requestHostRecoveryCheck(permissionHost.id, { id: owner.id }), /FORBIDDEN/)
+  await prisma.user.update({ where: { id: owner.id }, data: { role: 'user' } })
+  await assert.rejects(requestHostRecoveryCheck(permissionHost.id, { ...session, role: 'admin' } as any), /FORBIDDEN/)
+  await prisma.user.update({ where: { id: owner.id }, data: { role: 'admin' } })
+  await prisma.tokenInvalidation.create({ data: { userId: owner.id, sessionId: session.sid, invalidatedAt: session.iat } })
+  await assert.rejects(requestHostRecoveryCheck(permissionHost.id, session), /FORBIDDEN/)
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: owner.id } })
+  assert.deepEqual((await prisma.host.findUniqueOrThrow({ where: { id: permissionHost.id } })).poolCleanup, untouched)
+  await requestHostRecoveryCheck(permissionHost.id, session)
+  const permitted = readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: permissionHost.id } })).poolCleanup)!
+  assert.equal(permitted.kind, 'replacement'); assert.equal(permitted.revision, (untouched as any).revision)
+  await prisma.host.update({ where: { id: permissionHost.id }, data: { poolCleanup: { version: 1, kind: 'manual', reason: 'database_only' } } })
+  await assert.rejects(requestHostRecoveryCheck(permissionHost.id, session), /RETAINED_DATA/)
+  assert.equal(mutations().length, 0)
+  console.log('PASS real administrator/session required; forged role, revoked session, and retained records rejected')
 
   // Old delivered tasks are adopted, while records-only deletion is never adopted.
   await prisma.host.updateMany({ where: { userId: owner.id }, data: { poolFaulted: false } })
