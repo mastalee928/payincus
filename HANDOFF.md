@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- Owner明确授权#27/#41正常停启；原管理API/task533/534、545/546完成，实际Stopped后Running，sysinfo两台768MiB，原uuid/凭据/系统文件/账期价格、公网IPv6验过。#27旧instance.ipv6内部单值被状态同步清null，但原私有地址仍在guest且公网映射正常，核实际地址后续原验收，不放宽公网变化。静态探针矩阵发生两个独立问题：3MB命令base64超Incus请求体上限属测试传输；#38重装Alpine3.24真实Btrfs snapshot报目标File exists，必须源码修并复验。正式未发布。当前7测试实例矩阵原系统/账務保留，失败在途自然收尾；待小块静态probe重跑及Btrfs根因/修复/完整镜像验收。
+
 - 最终兼容daemon替换后补跑全部镜像：/var/cache/incudal-ota/owner-compat-sysinfo-6c8b36ed-amd、-arm，正常用户API、AMD#35–39和ARM#40/#42两个测试实例，各24镜像重装/stop/start/restart，每步加真实sysinfo字节数并核原密码key/磁盘/IPv4IPv6/账期价格，2026-11-14 01:20UTC启动仍running。旧609矩阵48全过保留，但不能替代新daemon范围。正式发行等本轮终态及#27/#41旧启动处理owner选择，主控preview-aa8a291/Agent1.0.12、34池verified/25空可售不受此测试其它宿主影响。
 
 - 6c8b36ed最终验证：CI43534756776 29/29、Agent43534756798、Alpine43534756814、8原生43534756899和无tag预览43534750911双首装/六旧worker升级全部success。主控46成功preview-aa8a291，已验证1.0.12经正常manifest自然34/34升级，原34任务全部verified；实际分配器34ready、25空库存可售。9运行实例quota/proc/cgroup/只读视图准确；原8客户/测试PID/boot保持，#42正常用户停启496/497后sysinfo4GiB并保持身份账期。E2#37/sysinfo768MiB、ARM#40/4GiB即刻正确；#27/#41旧启动没有sysinfo规则，是否代停启owner选择待答，不宣称当前sysinfo准确。修复后单次实购#43/qa1810-final-alpine原价10+1扣11一次，网页订单/用户无改价/stop498/start499/restart500完成，SSH/IPv6/768MiB/30GiB/sysinfo全过；图库224文件18.66GB升级清单保持。最终[五轮](docs/incus-resource-final-five-reviews-2026-11-14.md)已记录，正式未发布。

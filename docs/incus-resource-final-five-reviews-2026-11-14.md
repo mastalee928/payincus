@@ -36,4 +36,6 @@ Debian11/Ubuntu25.10 双架构管理员记录、专用文件与缓存已撤除�
 
 修复后实购#43/qa1810-final-alpine使用真实poolbuyer账户、原定价10+1、单次扣11元；实际开通、网页stop/start/restart、远端Stopped/Running、SSH/IPv6、768MiB和30GiB及sysinfo准确。#42/test-arm-2旧进程未载入sysinfo规则，正常用户stop/start后4GiB准确，凭据/UUID/账期保持。旧真实客户#27/#41也属于未载入规则的历史启动；需要正常重启生效，当前未授权代停启，owner选择仍待。不能把其/proc与cgroup准确或daemon修复完成说成当前sysinfo已准确。
 
-完整证据与未完成项见 HANDOFF.md、customer-resource-accuracy-2026-11-14.md。密码、token、管理密钥和原始记录只在仓库外私有目录。
+Owner随后明确授权#27/#41停启，两台原管理API任务均完成；确认Stopped及Running、sysinfo768MiB、SSH/公网IPv6/原UUID/凭据/系统文件/账期价格保持。#27旧单值内部IPv6被状态同步清null，原地址仍在guest且公网映射未变，实际核验并记录。该项此前“待选择”已完成。
+
+守护进程替换后的全镜像补跑追加发现#38 Btrfs重装目标File exists，尚须根因与源码修复；静态sysinfo探针整段base64超过Incus请求体属测试传输问题。当前未正式发版，完整新daemon矩阵等待这些问题闭环。完整证据与未完成项见 HANDOFF.md、customer-resource-accuracy-2026-11-14.md。密码、token、管理密钥和原始记录只在仓库外私有目录。
