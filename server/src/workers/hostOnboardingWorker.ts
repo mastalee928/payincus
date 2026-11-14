@@ -293,7 +293,14 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
       await client.getResources()
       const poolName = POOL_DISK_NAME
       const registered = await prisma.storagePool.findUnique({ where: { hostId_name: { hostId: host.id, name: poolName } } })
-      const pool = await ensureIsolatedPool(client, host.storageSize, registered?.driver === 'btrfs', async () => { await assertOnboardingLease(node) })
+      let pool
+      try { pool = await ensureIsolatedPool(client, host.storageSize, registered?.driver === 'btrfs', async () => { await assertOnboardingLease(node) }) }
+      catch (error) {
+        if (error instanceof OnboardingError) throw error
+        // A lost pool response is reconciled by reading that same pool on the
+        // next attempt, never by replaying the host installer or changing pins.
+        throw new OnboardingError('POOL_DISK_ISOLATION_PENDING')
+      }
       await prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR UPDATE`
         await tx.$queryRaw`SELECT id FROM host_onboarding_nodes WHERE id = ${node.id} FOR UPDATE`

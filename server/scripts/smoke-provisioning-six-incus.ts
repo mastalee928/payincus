@@ -315,6 +315,10 @@ try {
         const recovered = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
         assert.equal(recovered.status, 'running'); assert.equal(recovered.expiresAt?.getTime(), instance.expiresAt?.getTime())
         assert.equal(recovered.purchaseBatchId, instance.purchaseBatchId)
+        const rebuiltDisk = await execWithOutput(transport,name,['stat','-f','-c','%S %b','/'],{},5000)
+        assert.equal((rebuiltDisk.metadata as {return?:number}).return,0)
+        const [rebuiltBlock,rebuiltBlocks]=rebuiltDisk.stdout.trim().split(/\s+/).map(BigInt)
+        assert.equal(rebuiltBlock*rebuiltBlocks,4n*1024n**3n,'rebuild must keep the independent filesystem size')
         await verifyNativeSsh(name, decryptSensitiveData(recovered.rootPassword!))
         console.log('PASS native post-rebuild password SSH before stop/start')
         console.log('PASS native rebuild: genuine missing image failure is terminal, stopped retained, fresh consent rebuild succeeds with real password SSH and unchanged paid term')
@@ -324,6 +328,17 @@ try {
     await failPoolProvision(instance.id, (await getHostById(host.id))!, 'native completed pool lifecycle cleanup')
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'deleted')
     assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).diskUsed, 0)
+    if(image==='alpine/3.24/cloud'){
+      // Reuse the just-released pool with a different quota; no prior size leaks.
+      execFileSync('incus',['init',`images:${image}`,'native-disk-resale','-s','payincus-pool','-d','root,size=1GiB'],{timeout:60000})
+      execFileSync('incus',['start','native-disk-resale'],{timeout:30000})
+      const actual=execFileSync('incus',['exec','native-disk-resale','--','stat','-f','-c','%S %b','/'],{encoding:'utf8',timeout:10000}).trim().split(/\s+/).map(BigInt)
+      assert.equal(actual[0]*actual[1],1024n**3n)
+      const full=await execWithOutput(transport,'native-disk-resale',['/bin/sh','-c','set -e; if dd if=/dev/zero of=/root/quota-check bs=1048576 count=1100 2>/tmp/quota-result; then rm /root/quota-check; exit 1; fi; grep -E "No space left|Disk quota exceeded" /tmp/quota-result; rm -f /root/quota-check; sync'],{},60000)
+      assert.equal((full.metadata as {return?:number}).return,0,'writing beyond the private device cannot consume the whole pool')
+      execFileSync('incus',['delete','native-disk-resale','--force'],{timeout:30000})
+      console.log('PASS real isolated-volume disk-full enforcement and resale with a new 1GiB size')
+    }
     console.log(`PASS native ${process.arch} ${image}: current create entry, original password SSH, complete cleanup`)
   }
 } finally {

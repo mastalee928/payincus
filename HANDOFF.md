@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- owner已自行删全部用户实例，13:57UTC只读核allActiveInstances=0，agent未重复删除。#53实例40于13:15:49删除结算完成；13:15:52回池检查返回not-ready被CleanupBlocked归类，直接30分钟退避，13:46:23第二次过并恢复销售。IPv6 IP_HOST_QUARANTINED是后果，不是根因。旧记录把安装/存储/Agent合并为not-ready，无法从历史日志再区分当时子项；计划把临时未就绪缩为15秒续查并在弹窗关闭左加核验入口立即请求，保留真实身份/资源检查。补充随磁盘隔离同版完成，未部署。649d8870磁盘14原生成功，预览旧升级失败仅test-origins仍断言v1.8.9，输入已升级v1.8.10；已修夹具版本，不是产品OTA失败。
+
+- 磁盘隔离649d8870/PR15：修正btrfstune旧工具探测后，双架构7镜像共14原生交付/旧空Btrfs池自动转换/真实statfs与重装全success，Agent43600746768成功；完整CI43600746688仍六尾段，预览43600743397全量/双构建及首装旧升级继续。追加首次接入pool响应丢失明确排队续接，以及原生1GiB写满/删除/不同规格重卖测试，待新source。当前主控仍v1.8.10，现有用户实例删除授权已记录但尚未执行，不先删后试。
+
 - 磁盘隔离候选a5a0d38f/PR15首轮CI发现：Ubuntu24.04的btrfstune无--version，导致tool ready=false，所有原生在转换前拒绝；改--help并只接受真实btrfstune用法的历史exit1。共享dir/btrfs旧库存fixture仍期望可售的计费/cleanup测试同步为LVM独立卷，实际cleanup脚本也改LVM以验真实删卷回池。预览全量221/222，唯一失败是架构检查守卫仍找已抽成常量的旧poolName字面量；改为验证架构检查在ensureIsolatedPool之前，单跑通过。类型/build/两架构Go与PG转换/库存通过，待新同来源原生，不以首轮失败项为已通过。未动线上实例或池。
 
 - 2026-11-14磁盘可见范围新工作：owner要求df/statfs与SSH监控只见当前实例磁盘，覆盖现有/未来宿主、新建/重装/回池；随后明确现有用户实例均可删除。当前线上仅只读#35，确认30GiB qgroup但statfs=34GiB。独立本地Alpine6.18/Incus7.0.1实验：LVM thin+Btrfs每卷，5GiB池内1GiB客机df/statfs精确1GiB，文件/快照/UUID保持，创建时间随存储迁移改变；回退缺btrfstune后补工具，未进行生产迁移/删除。因owner允许清存量，不再要求客户数据迁移。分支codex/isolated-instance-disks候选1.8.11/Agent1.0.15：新接入默认LVM+Btrfs，旧空池经原身份/DB锁/0实例/0任务/仅缓存卷核验再重建同名池，断线/半初始化自动续接；Agent补工具和kernel thin支持回执，销售/选池/创建前复核独立文件系统。初轮types/隔离状态守卫/真实PG+mTLS转换与池库存/计费回归通过；双架构原生改为旧空Btrfs→产品转换→7镜像创建/真实statfs，尚待CI。现有用户实例未删，主控仍v1.8.10；新方案未热更新或正式发行。
