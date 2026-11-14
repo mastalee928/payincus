@@ -102,6 +102,28 @@ btrfs_text = btrfs_text.replace(btrfs_marker, '''    target := vol.MountPath()
     } else if !os.IsNotExist(statErr) { return statErr }
 
     // Recursively copy the main volume.''')
+delete_marker = '''	// Delete the volume (and any subvolumes).
+	err = d.deleteSubvolume(volPath, true)'''
+assert btrfs_text.count(delete_marker) == 1
+btrfs_text = btrfs_text.replace(delete_marker, '''    // An interrupted root replacement may have left only an empty ordinary
+    // mount directory, not a Btrfs subvolume. Remove that exact empty directory
+    // under its mount lock; never recurse into unconfirmed data.
+    mountUnlock, err := vol.MountLock()
+    if err != nil { return err }
+    defer mountUnlock()
+    if vol.MountInUse() { return ErrInUse }
+    info, err := os.Lstat(volPath)
+    if err != nil { return err }
+    stat, ok := info.Sys().(*syscall.Stat_t)
+    if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !ok {
+        return fmt.Errorf("Invalid volume path: %q", volPath)
+    }
+    if stat.Ino != 256 {
+        if err = os.Remove(volPath); err != nil { return fmt.Errorf("Unconfirmed volume directory is not empty: %w", err) }
+        return deleteParentSnapshotDirIfEmpty(d.name, vol.volType, volName)
+    }
+	// Delete the volume (and any subvolumes).
+	err = d.deleteSubvolume(volPath, true)''')
 btrfs_target.write_text(btrfs_text)
 (source / 'cmd/incusd/incudal_monitor_test.go').write_text('''package main
 import "testing"
