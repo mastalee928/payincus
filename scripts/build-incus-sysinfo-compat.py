@@ -74,6 +74,13 @@ lxc_text = lxc_text.replace(lxc_marker, '''func (d *lxc) Rebuild(img *api.Image,
     defer rebuildLock.Done(nil)
     if d.IsRunning() { return errors.New("Instance must be stopped to be rebuilt") }
     d.stopForkfile(false)
+    // A failed rebuild can already have removed the storage volume row.
+    // Resolve the original configured root pool before the common path tries
+    // to look it up through that deleted volume record.
+    _, rootDisk, err := d.getRootDiskDevice()
+    if err != nil || rootDisk["pool"] == "" { return errors.New("Rebuild root storage pool unavailable") }
+    d.storagePool, err = storagePools.LoadByName(d.state, rootDisk["pool"])
+    if err != nil { return err }
     return d.rebuildCommon(d, img, op)
 }''')
 lxc_target.write_text(lxc_text)

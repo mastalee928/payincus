@@ -131,7 +131,7 @@ func compatibilityBinary() ([]byte, error) {
 		arch = "aarch64"
 		machine = 183
 	}
-	if json.Unmarshal(m, &manifest) != nil || manifest.Purpose != "alpine-incus-sysinfo-compat" || manifest.IncusVersion != "7.0.1" || manifest.Architecture != arch || manifest.SourceSha256 != "5e415fa1684f0945d45ca780af6662f143b857681e18d29038725cde70c26ee6" || manifest.LifecycleSourceSha256 != "fc08e46b06da62a8bf10328d51fc446bc013ff90f9794b009f9166913d5cba3b" || manifest.Size <= 0 || manifest.Size > 96*1024*1024 {
+	if json.Unmarshal(m, &manifest) != nil || manifest.Purpose != "alpine-incus-sysinfo-compat" || manifest.IncusVersion != "7.0.1" || manifest.Architecture != arch || manifest.SourceSha256 != "5e415fa1684f0945d45ca780af6662f143b857681e18d29038725cde70c26ee6" || manifest.LifecycleSourceSha256 != "4434934a807d80485f436ae1a7c9313eee92006cbadddb6641d30b005859ffe5" || manifest.Size <= 0 || manifest.Size > 96*1024*1024 {
 		return nil, fmt.Errorf("compatibility manifest invalid")
 	}
 	b, e := compatibilityFiles.ReadFile("compat/incusd-" + runtime.GOARCH + ".gz")
