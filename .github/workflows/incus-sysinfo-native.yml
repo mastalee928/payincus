@@ -8,7 +8,10 @@ on:
       - 'agent/internal/provisioning/**'
       - '.github/workflows/incus-sysinfo-native.yml'
 jobs:
+  compatibility-build:
+    uses: ./.github/workflows/incus-sysinfo-compat.yml
   runtime:
+    needs: compatibility-build
     permissions:
       actions: read
       contents: read
@@ -16,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-        scenario: [normal, prepared-resume, rollback-retry, empty-pool]
+        scenario: [normal, prepared-resume, rollback-retry, empty-pool, btrfs-rebuild]
         include:
           - runner: ubuntu-24.04
             architecture: amd64
@@ -36,18 +39,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 43510197753 --name incudal-incusd-sysinfo-${{ matrix.architecture }} --dir output
+          gh run download ${{ github.run_id }} --name incudal-incusd-sysinfo-${{ matrix.architecture }} --dir output
           python3 - <<'PY'
           import hashlib,json,pathlib
           p=pathlib.Path('output');m=json.loads((p/'incusd-manifest.json').read_text());b=(p/'incusd').read_bytes()
           assert m['sourceSha256']=='5e415fa1684f0945d45ca780af6662f143b857681e18d29038725cde70c26ee6'
           assert m['patchedSourceSha256']=='bad35c2986663bddeddb94e088969ba1671446dc08875da6a6727e996334f12a'
+          assert m['lifecycleSourceSha256']=='adc1c50dceab46d78de7c21d0045ab74037270108038bb1fc9e6ff7a971c39d4'
           assert hashlib.sha256(b).hexdigest()==m['sha256'] and len(b)==m['size']
           PY
       - name: Original daemon reload retains guest and corrects real sysinfo
         run: |
           set -euo pipefail
-          GH_TOKEN='${{ github.token }}' node scripts/prepare-incus-compat.mjs
+          GH_TOKEN='${{ github.token }}' INCUS_COMPAT_BUILD_RUN='${{ github.run_id }}' node scripts/prepare-incus-compat.mjs
           (cd agent && CGO_ENABLED=0 go test -c -o ../output/provisioning-test ./internal/provisioning)
           arch=x86_64; digest=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
           if [[ '${{ matrix.architecture }}' == arm64 ]]; then arch=aarch64; digest=4b14c18f7e90a063b61462ea1462a5732c154bf6adad594974fe6487cd98a8de; fi

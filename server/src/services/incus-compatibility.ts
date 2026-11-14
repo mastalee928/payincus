@@ -65,7 +65,13 @@ export async function incusCompatibilityPermit(agent:HostAgentRecord) {
   const instances=[]
   for(const row of occupants){const identity=await registeredGuestIdentity(tx,row,host);if(!identity.uuid)return null;const remote=await client.request<{config?:Record<string,string>;status?:string}>('GET',`/1.0/instances/${encodeURIComponent(row.incusId)}`,null,5000);if(remote.config?.['volatile.uuid']!==identity.uuid||remote.status!==(row.status==='running'?'Running':'Stopped'))return null;instances.push({id:row.id,name:row.incusId,uuid:identity.uuid,state:remote.status})}
   if(fence.version===1){
-   if(fence.hostIdentity!==transferHostIdentity(host)||fence.binaryHash!==report.compatHash)return null
+   if(fence.hostIdentity!==transferHostIdentity(host))return null
+   if(fence.phase==='verified'&&fence.binaryHash!==report.compatHash&&report.incusCompat==='needed'&&report.compatRequest===fence.requestId&&!hostMaintenanceBlocked(state)){
+    const next:Fence={...fence,phase:'prepared',binaryHash:report.compatHash,instances}
+    await tx.host.update({where:{id:host.id},data:{securityHardening:{...state,incusCompat:next} as Prisma.InputJsonValue}})
+    return {requestId:next.requestId,hostIdentity:next.hostIdentity,guests:next.instances.map(i=>({name:i.name,uuid:i.uuid,state:i.state})),expiresAt:new Date(Date.now()+240000).toISOString()}
+   }
+   if(fence.binaryHash!==report.compatHash)return null
    if(instances.some(i=>!fence.instances.some(old=>old.id===i.id&&old.name===i.name&&old.uuid===i.uuid&&(old.state===i.state||old.state==='Running'&&i.state==='Stopped'))))return null
    if(JSON.stringify(fence.instances)!==JSON.stringify(instances)){fence.instances=instances;await tx.host.update({where:{id:host.id},data:{securityHardening:{...state,incusCompat:fence} as Prisma.InputJsonValue}})}
    if(report.incusCompat==='verified'&&report.compatRequest===fence.requestId){await tx.host.update({where:{id:host.id},data:{securityHardening:{...state,incusCompat:{...fence,phase:'verified'}} as Prisma.InputJsonValue}});return null}

@@ -60,6 +60,49 @@ code = '''        // Alpine's monitor argv is empty on affected builds. Use the
 '''
 text = text.replace(insert, code + insert)
 target.write_text(text)
+lxc_target = source / 'internal/server/instance/drivers/driver_lxc.go'
+lxc_text = lxc_target.read_text()
+lxc_marker = '''func (d *lxc) Rebuild(img *api.Image, op *operations.Operation) error {
+	return d.rebuildCommon(d, img, op)
+}'''
+assert lxc_text.count(lxc_marker) == 1
+lxc_text = lxc_text.replace(lxc_marker, '''func (d *lxc) Rebuild(img *api.Image, op *operations.Operation) error {
+    // Replacing a stopped root filesystem must exclude SFTP mounts and other
+    // lifecycle actions. FileSFTPConn already waits on this operation lane.
+    rebuildLock, err := operationlock.CreateWaitGet(d.Project().Name, d.Name(), op, operationlock.ActionRestore, nil, false, false)
+    if err != nil { return err }
+    defer rebuildLock.Done(nil)
+    if d.IsRunning() { return errors.New("Instance must be stopped to be rebuilt") }
+    d.stopForkfile(false)
+    return d.rebuildCommon(d, img, op)
+}''')
+lxc_target.write_text(lxc_text)
+btrfs_target = source / 'internal/server/storage/drivers/driver_btrfs_volumes.go'
+btrfs_text = btrfs_target.read_text()
+assert '\t"syscall"\n' not in btrfs_text
+btrfs_text = btrfs_text.replace('\t"strings"\n', '\t"strings"\n\t"syscall"\n')
+btrfs_marker = '''	target := vol.MountPath()
+
+	// Recursively copy the main volume.'''
+assert btrfs_text.count(btrfs_marker) == 1
+btrfs_text = btrfs_text.replace(btrfs_marker, '''    target := vol.MountPath()
+    mountUnlock, err := vol.MountLock()
+    if err != nil { return err }
+    defer mountUnlock()
+    if vol.MountInUse() { return ErrInUse }
+    // Recover an empty ordinary mount directory from an interrupted rebuild.
+    // A real subvolume (inode 256), symlink, or nonempty directory is never
+    // removed. rmdir is nonrecursive and fails closed if another writer wins.
+    if info, statErr := os.Lstat(target); statErr == nil {
+        stat, ok := info.Sys().(*syscall.Stat_t)
+        if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !ok || stat.Ino == 256 {
+            return fmt.Errorf("Target volume already exists: %q", target)
+        }
+        if err = os.Remove(target); err != nil { return fmt.Errorf("Target mount directory is not empty: %w", err) }
+    } else if !os.IsNotExist(statErr) { return statErr }
+
+    // Recursively copy the main volume.''')
+btrfs_target.write_text(btrfs_text)
 (source / 'cmd/incusd/incudal_monitor_test.go').write_text('''package main
 import "testing"
 func TestIncudalMonitorCgroup(t *testing.T) {
@@ -72,7 +115,7 @@ func TestIncudalMonitorCgroup(t *testing.T) {
  } { got,ok:=incudalContainerNameFromCgroup(tc.input);if got!=tc.want||ok!=(tc.want!=""){t.Fatal(tc.input,got)} }
 }
 ''')
-subprocess.run(['gofmt','-w',str(target),str(source/'cmd/incusd/incudal_monitor_test.go')],check=True)
+subprocess.run(['gofmt','-w',str(target),str(lxc_target),str(btrfs_target),str(source/'cmd/incusd/incudal_monitor_test.go')],check=True)
 env={**os.environ,'CGO_ENABLED':'1','CGO_CFLAGS':'-I/usr/include/raft -I/usr/include/cowsql','CGO_LDFLAGS':'-lintl','CGO_LDFLAGS_ALLOW':'(-Wl,-wrap,pthread_create)|(-Wl,-z,now)'}
 subprocess.run(['go','test','-tags=libsqlite3','-run=^TestIncudalMonitorCgroup$','./cmd/incusd'],cwd=source,env=env,check=True)
 output=pathlib.Path('/out');output.mkdir(exist_ok=True)
@@ -82,6 +125,7 @@ subprocess.run(['ldd',str(binary)],check=True)
 manifest={'schemaVersion':1,'purpose':'alpine-incus-sysinfo-compat','incusVersion':'7.0.1','sourceUrl':SOURCE_URL,'sourceSha256':SOURCE_SHA,
  'upstreamFixes':['5daa427d330004609859ab6f19b6101d3479d59c','83eaa5e19345a4719df46bcdb2850547d069b88e'],
  'architecture':os.uname().machine,'sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'size':binary.stat().st_size,
- 'patchedSourceSha256':hashlib.sha256(target.read_bytes()).hexdigest()}
+ 'patchedSourceSha256':hashlib.sha256(target.read_bytes()).hexdigest(),
+ 'lifecycleSourceSha256':hashlib.sha256(lxc_target.read_bytes()+btrfs_target.read_bytes()).hexdigest()}
 (output/'incusd-manifest.json').write_text(json.dumps(manifest,indent=2))
 print(json.dumps(manifest))

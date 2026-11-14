@@ -22,7 +22,13 @@ ps -o pid,ppid,args
 ls -l /proc/$old/exe /run/incus /var/lib/incus || true
 cat /tmp/incusd-original.log
 if ! incus admin waitready --timeout=60; then cat /tmp/incusd-original.log; exit 1; fi
-incus storage create default dir
+if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = btrfs-rebuild; then
+  apk add --no-cache btrfs-progs
+  truncate -s 1G /tmp/compat-btrfs.img
+  incus storage create default btrfs source=/tmp/compat-btrfs.img
+else
+  incus storage create default dir
+fi
 if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = empty-pool; then
   printf '%s\n' "$old" > /run/incus/incusd.pid
   /out/provisioning-test -test.run '^TestNativeCompatibilityEmptyPoolReload$' -test.v
@@ -81,5 +87,33 @@ assert a['status']==b['status']=='Running' and a['pid']==b['pid']
 PY
 timeout -s KILL 5 incus exec native-sysinfo -- timeout -s KILL 3 /root/sysinfo | tee /tmp/sysinfo-fixed
 grep -q '^SYSINFO_BYTES=134217728$' /tmp/sysinfo-fixed
+if test "${INCUDAL_COMPAT_RELOAD_SCENARIO:-}" = btrfs-rebuild; then
+  for round in 1 2 3; do
+    incus stop native-sysinfo --force
+    # Keep a real stopped-instance file helper active before destructive
+    # replacement, matching the customer initialization file access path.
+    incus file pull native-sysinfo/etc/os-release /tmp/compat-os-release
+    incus rebuild native-sysinfo images:alpine/3.24/tinycloud --force
+    incus start native-sysinfo
+    timeout -s KILL 10 incus exec native-sysinfo -- cat /etc/os-release
+  done
+  incus stop native-sysinfo --force
+  target=/var/lib/incus/storage-pools/default/containers/native-sysinfo
+  # Inject only the exact empty-directory remnant observed after a failed
+  # rebuild in this disposable storage pool. Keep the original instance DB.
+  forkpid=/var/lib/incus/logs/native-sysinfo/forkfile.pid
+  if test -f "$forkpid"; then
+    child=$(cat "$forkpid")
+    kill -INT "$child"
+    for n in $(seq 1 20); do kill -0 "$child" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$child" 2>/dev/null; then exit 1; fi
+  fi
+  btrfs subvolume delete "$target"
+  mkdir -m 0100 "$target"
+  incus rebuild native-sysinfo images:alpine/3.24/tinycloud --force
+  incus start native-sysinfo
+  timeout -s KILL 10 incus exec native-sysinfo -- cat /etc/os-release
+  echo 'PASS native Btrfs repeated rebuild and original empty-directory recovery'
+fi
 incus delete --force native-sysinfo
 echo 'PASS original Alpine daemon to fixed same version: UUID/PID/boot/disk retained and actual sysinfo=128MiB'

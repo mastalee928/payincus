@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- #38 Btrfs根因/源码候选：实际旧卷删除后留下inode265空普通目录、无实例symlink/在途ops；原Incus lxc Rebuild没有操作lane和结束forkfile，SFTP可在替换窗口MountVolume/EnsureMountPath重建目标。固定官方7.0.1兼容构建补重装ActionRestore互斥+stopForkfile；Btrfs复制持mount锁/无引用，只rmdir空普通目录（真实subvolume inode256/链接/非空拒绝）。生命周期文件合hash adc1c50d...c39d4钉死，新增真实Btrfs重复重装/文件服务/精确空目录恢复；Agent1.0.13和主控下一代hash许可/原回滚archive续接。server types、双Go vet/test编译、host-tools/agent-version/资源/隔离守卫和完整PG/mTLS重装/换机/两代许可账务回归过，新原生/CI/热更新仍待，正式不发。测试Probe由Python改静态后二次大参数失败属传输，现受信SSH+SFTP/Incus file push方案ARM正常进入停启，无customer Python依赖。
+
 - Owner明确授权#27/#41正常停启；原管理API/task533/534、545/546完成，实际Stopped后Running，sysinfo两台768MiB，原uuid/凭据/系统文件/账期价格、公网IPv6验过。#27旧instance.ipv6内部单值被状态同步清null，但原私有地址仍在guest且公网映射正常，核实际地址后续原验收，不放宽公网变化。静态探针矩阵发生两个独立问题：3MB命令base64超Incus请求体上限属测试传输；#38重装Alpine3.24真实Btrfs snapshot报目标File exists，必须源码修并复验。正式未发布。当前7测试实例矩阵原系统/账務保留，失败在途自然收尾；待小块静态probe重跑及Btrfs根因/修复/完整镜像验收。
 
 - 最终兼容daemon替换后补跑全部镜像：/var/cache/incudal-ota/owner-compat-sysinfo-6c8b36ed-amd、-arm，正常用户API、AMD#35–39和ARM#40/#42两个测试实例，各24镜像重装/stop/start/restart，每步加真实sysinfo字节数并核原密码key/磁盘/IPv4IPv6/账期价格，2026-11-14 01:20UTC启动仍running。旧609矩阵48全过保留，但不能替代新daemon范围。正式发行等本轮终态及#27/#41旧启动处理owner选择，主控preview-aa8a291/Agent1.0.12、34池verified/25空可售不受此测试其它宿主影响。

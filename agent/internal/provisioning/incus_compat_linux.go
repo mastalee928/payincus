@@ -27,6 +27,7 @@ var compatibilityFiles embed.FS
 
 type compatManifest struct {
 	Purpose, IncusVersion, SourceSha256, Architecture, SHA256 string
+	LifecycleSourceSha256                                     string
 	Size                                                      int64
 }
 type compatGuest struct {
@@ -130,7 +131,7 @@ func compatibilityBinary() ([]byte, error) {
 		arch = "aarch64"
 		machine = 183
 	}
-	if json.Unmarshal(m, &manifest) != nil || manifest.Purpose != "alpine-incus-sysinfo-compat" || manifest.IncusVersion != "7.0.1" || manifest.Architecture != arch || manifest.SourceSha256 != "5e415fa1684f0945d45ca780af6662f143b857681e18d29038725cde70c26ee6" || manifest.Size <= 0 || manifest.Size > 96*1024*1024 {
+	if json.Unmarshal(m, &manifest) != nil || manifest.Purpose != "alpine-incus-sysinfo-compat" || manifest.IncusVersion != "7.0.1" || manifest.Architecture != arch || manifest.SourceSha256 != "5e415fa1684f0945d45ca780af6662f143b857681e18d29038725cde70c26ee6" || manifest.LifecycleSourceSha256 != "adc1c50dceab46d78de7c21d0045ab74037270108038bb1fc9e6ff7a971c39d4" || manifest.Size <= 0 || manifest.Size > 96*1024*1024 {
 		return nil, fmt.Errorf("compatibility manifest invalid")
 	}
 	b, e := compatibilityFiles.ReadFile("compat/incusd-" + runtime.GOARCH + ".gz")
@@ -370,10 +371,40 @@ func prepareIncusCompatibility(ctx context.Context, permit *CompatPermit) error 
 		if e != nil {
 			return e
 		}
-		if compatHash(b) == journal.NewHash {
+		if compatHash(b) != journal.NewHash {
+			return fmt.Errorf("compatibility installed daemon drifted")
+		}
+		newBinary, e := compatibilityBinary()
+		if e != nil {
+			return e
+		}
+		if compatHash(newBinary) == journal.NewHash {
 			return nil
 		}
-		return fmt.Errorf("compatibility installed daemon drifted")
+		// Keep the previous rollback file immutable before a new repair generation.
+		if old, readErr := os.ReadFile(compatBackupPath); readErr == nil {
+			if compatHash(old) != journal.OldHash {
+				return fmt.Errorf("previous compatibility rollback changed")
+			}
+			archive := compatBackupPath + "." + journal.NewHash
+			if saved, readErr := os.ReadFile(archive); readErr == nil {
+				if compatHash(saved) != journal.OldHash {
+					return fmt.Errorf("previous rollback archive changed")
+				}
+				if e = os.Remove(compatBackupPath); e != nil {
+					return e
+				}
+			} else if os.IsNotExist(readErr) {
+				if e = os.Rename(compatBackupPath, archive); e != nil {
+					return e
+				}
+			} else {
+				return readErr
+			}
+		} else if !os.IsNotExist(readErr) {
+			return readErr
+		}
+		journal = compatJournal{}
 	}
 	info, e := run(ctx, "incus", "query", "/1.0")
 	if e != nil {
