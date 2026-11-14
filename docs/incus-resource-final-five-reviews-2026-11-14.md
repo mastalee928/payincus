@@ -1,5 +1,7 @@
 # 最终资源与自动修复五轮审视
 
+2026-11-14终轮再复查：cd1b1787目标更新48/34台自动1.0.14/DNS/#38恢复已实证通过，后续全部镜像压力路径又发现请求准备与实际发送未区分，以及SSH握手二次error导致唯一backend退出后systemd恢复。新增五轮：(1) 密码准备保存rebuild_prepared，只有最终HTTP dispatch之前转uncertain；(2) 前置拒绝同任务重查原授权/配置并续接，已发请求仍不重复；(3) callback在原维护lane内，历史清理保留prepared，真实网络丢失与明确失败原回归保持；(4) SSH终结器幂等且持续监听所有error，固定公钥、密码认证与root核验不变；(5) 两次连续error、本地维护拒绝零rebuild POST后自动恢复、两架构真实PG完整104任务与敏感授权回归及类型/build通过。原生将追加实际Incus前置拒绝后同任务完成；新增来源尚未部署，原矩阵AMD16/24、ARM12/24已因后端重启中断，不标全过。
+
 2026-11-14追加五轮：#38任务666表明70f75c6对失败rootfs重建的修复没有覆盖前置配置PUT。逐项复查：(1) UpdateBackupFile以类型化404及Lstat确实不存在识别缺备份，沿原fs.ErrNotExist处理，不吞其它存储错误；(2) Running/snapshot/现存链接仍拒绝，补真实负例；(3) 保留Update及Rebuild原操作锁、forkfile退出、backup锁，不取消在途操作；(4) 沿原配置root pool恢复原实例，非空/真实子卷保护仍在，UUID与账务不重建；(5) 原生新增缺卷DB与链接→config PUT→rebuild→start→backup.yaml/sysinfo/UUID全链，固定新生命周期hash a60cea54e5d1e5397292556627fdcf7a808494e6abcbb180dd3b3710f03eb222，Agent候选1.0.14。源码及本地双Go vet/编译、host-tools通过，新增云端原生及目标#38实证待完成，不能用前12原生绿代替。
 
 70f75c6本身完整CI29/29、12原生及双首装/六旧升级均通过，候选47及34/34新hash自动verified完成；实际前置配置失败揭示夹具缺少volume DB已删除的状态，已保留失败证据。真实客户#27/#41授权停启完成，旧“待授权”内容仅为历史。正式未发行。

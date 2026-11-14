@@ -276,7 +276,7 @@ const PUBLIC_INSTANCE_TASK_SELECT = {
 
 function publicTask<T extends { replacementState?: unknown } | null>(task: T): T {
   if (!task || !task.replacementState || typeof task.replacementState !== 'object') return task
-  const { pendingRootPassword: _secret, ...state } = task.replacementState as Record<string, unknown>
+  const { pendingRootPassword: _secret, rebuildLastError: _diagnostic, ...state } = task.replacementState as Record<string, unknown>
   return { ...task, replacementState: state }
 }
 
@@ -525,6 +525,7 @@ export async function cleanupOldTasks(): Promise<number> {
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'source_cleanup' } } },
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_failed' } } },
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_configuring' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_prepared' } } },
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' } } }] }] }],
       // Replacement evidence is also the registered identity used by later
       // renewal starts and expiry deletion. Retain ambiguous history too: its

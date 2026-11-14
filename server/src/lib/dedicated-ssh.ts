@@ -68,7 +68,9 @@ export function checkSshLogin(host: string, password: string, fingerprint: strin
       error ? reject(error) : resolve()
     }
     const timer = setTimeout(() => finish(new DedicatedSshVerificationError('timeout')), 12000)
-    client.once('error', (error: Error & { level?: string }) => finish(new DedicatedSshVerificationError(
+    // ssh2 can emit a protocol error after its initial handshake/socket error.
+    // Keep the idempotent handler for the entire client lifetime, including end.
+    client.on('error', (error: Error & { level?: string }) => finish(new DedicatedSshVerificationError(
       error.level === 'client-authentication' ? 'authentication' : 'unreachable')))
     client.once('ready', () => client.exec('id -u', (error, stream) => {
       if (error) return finish(new DedicatedSshVerificationError('command'))

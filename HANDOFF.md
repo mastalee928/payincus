@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+- 2026-11-14终轮新增未完成问题：#38任务735切Edge时已改config但磁盘仍Alpine3.22，原UUID/配置hash保持，无rebuildOperation，旧worker吞掉原异常后直接manual_intervention；不能把新image元数据当rootfs已改。补rebuild_prepared与真正HTTP dispatch分界，前置失败同原任务自动重查重试，发出后仍只凭原回执续接，持久脱敏错误。另05:02前后唯一backend因ssh2第二次error（Connection lost before handshake）无人监听退出，systemd恢复PID3062901/NRestarts1；候选无OTA，客户容器未重启。checkSshLogin改持续on error，新增两次错误回归通过。矩阵因此终态AMD16/24、ARM12/24，其余停止；#44新购全验通过。ARM余额差额已明确仅独立新购11元，不是重装收费。新增两修复本地types/相关守卫与双架构PG前置拒绝恢复已过，完整PG/原生新来源仍待，正式未发行。
+
+- 2026-11-14 04:44 UTC：新购#44/qa1810-dns-final TinyCloud已完整验收passed（初始化/SSH/IPv6/sysinfo768MiB/DNS、stop确认Stopped→start→restart、原key/password/marker/账期价格），余额与该实例1笔newPurchase保持。最新cd1b1787矩阵AMD5/24、ARM4/24继续，无终态失败；仅授权#44购买独立扣11元，真实balanceLog84/订单/账单核对通过，重装无新增收费。#42已后台自动DNS恢复，同boot双客户端仍运行但openresolv接管且下一boot无global注册；矩阵TinyCloud首轮后仅per-interface客户端、DNS保持。34/34新Agent与新hash核验已完成。
+
+- 2026-11-14 04:35 UTC现场：候选48于04:26:40成功，preview-cd1b178；正常manifest自动34/34 Agent1.0.14及新binary hash全部verified，原宿主/客机boot/PID保持，库224文件18.66GB清单保持。#42与#35-37等旧TinyCloud已自动移除重复启动并补openresolv；#42同boot真实SSH密钥交换/IPv6源回显通过。#38任务681正常用户API重装完成，真实Alpine3.24.4、SSH/IPv6/sysinfo768MiB/30GiB/原UUID账期价格全通过。最终AMD/ARM各24新候选矩阵已启动（先ARM后AMD）；中间授权新购#44 TinyCloud订单a2570848-78fe-4684-b141-f59ed797c253单扣11元，Running且交付完成。ARM基线先采999865.88，新购后为999854.88，后续必须以这笔独立购买账目精确解释差额，不误判为重装扣款或篡改原矩阵基线。#44单独停启/重启验收开始，最终全矩阵及正式发行仍待。
+
+- 2026-11-14 04:24 UTC：cd1b1787667e4ddea7c6b2945f229260a0bfdb4f完整CI43553546558最终29/29success（两TinyCloud原生均从IPv4-only正常池维护修复旧DNS并两次停启）、12compat43553546621、Agent43553546711、Alpine43553546626全部success。无tag预览43553542894双首装/六旧worker升级回滚全success，双实际tar原签名/source/243迁移/新DNS模块/用户边界独立核通过。候选已按原worker/原seal/DB支付检查启动热更新任务48；当前仅submitted，最终任务、34宿主自动1.0.14及新hash、旧实例DNS/#38恢复/最终镜像矩阵仍待。原客户#27/#41基线PID/boot/UUID/账期保持，镜像库224文件18,659,690,538 bytes已留升级前基线。
+
 - 2026-11-14 owner再次要求DNS覆盖现有及未来全部宿主，已记OWNER_REQUIREMENTS。复查补IPv4-only：原IPv6入口之外，全部池实例后台游标维护及正常交付/停启调用同一修复，资源/DNS异常分别处理，原UUID/受信宿主/并发任务/到期保持。新增双架构PG/mTLS池维护、错UUID/到期/Stopped拒绝与完整重装换机回归104任务全部过；最终scope补测两架构过，后端build/types及交付/IPv6守卫过。DNS基础5c8d966c两架构TinyCloud真实旧双客户端/空DNS恢复+两次停启与原密码/密钥/自定义symlink保留均success，12compat/Agent/Alpine均success，完整CI和预览尚待尾段；本次全池入口改变来源，须新同来源原生/预览。目标仍preview-70f75c6，无在途任务，34在线/新daemon verified/BBR全部applied，24空库存可售；#38Stopped、#42DNS待新候选自动修，未正式发行。
 
 - 2026-11-14 ARM终轮1.0.13矩阵在2/24后停止：#42 Alpine3.21 TinyCloud停启后IPv6探针78，SSH key交换正常但DNS两端curl exit6；实际/etc/resolv.conf为空、DHCP lease仍含正确nameserver，两个dhcpcd（ifupdown eth0与旧生成器添加global default）抢同接口/状态。新源码停止为新客机添加global dhcpcd，安装发行版openresolv聚合；旧程序标记+DHCP eth0才移除旧启动链接（不停止运行进程），仅空普通resolver从当前lease恢复，已有nameserver/符号链接不覆盖，并按可信生成标记补resolver聚合。新增TinyCloud双架构真实旧缺包/重复客户端/空DNS恢复→两次停启/DNS/原SSH与客户symlink保留。类型与交付/IPv6守卫通过，新原生/完整候选及目标实证待。另5384edbe的#38缺卷配置修复12原生全部success，仍未现场热更新此新来源；正式未发行。

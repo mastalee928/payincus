@@ -29,6 +29,7 @@ export interface IncusRequestConditions {
   ifMatch?: string
   onEtag?: (etag: string | undefined) => void
   onOperation?: (path: string) => Promise<void>
+  onDispatch?: () => Promise<void>
 }
 
 export class IncusClient {
@@ -224,6 +225,9 @@ export class IncusClient {
         options.body = JSON.stringify(body)
       }
 
+      // Persist destructive dispatch only after local maintenance/boot fences.
+      // Earlier refusal is safe to retry; a sent request needs its receipt.
+      await conditions?.onDispatch?.()
       const response = await request(url, options)
       const text = await response.body.text()
 

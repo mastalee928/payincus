@@ -76,6 +76,7 @@ import { isIP } from 'node:net'
 import { Address6 } from 'ip-address'
 import { networkModeNeedsPublicIpv4, networkModeNeedsRoutedIpv6 } from '../lib/network-modes.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
+import { redactAuditText } from '../lib/risk-audit.js'
 
 // 任务超时时间：轻量任务保持短超时，重建/克隆/改节点等重任务允许更长执行窗口
 const LIGHT_TASK_TIMEOUT = 5 * 60 * 1000
@@ -704,13 +705,15 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
       return
     }
     const reinstallReceipt = (await prisma.instanceTask.findUnique({ where: { id: taskId }, select: { replacementState: true } }))?.replacementState as { targetPhase?: string } | null
-    if (task?.taskType === 'rebuild' && reinstallReceipt?.targetPhase === 'rebuild_uncertain') {
+    if (task?.taskType === 'rebuild' && ['rebuild_prepared','rebuild_uncertain'].includes(reinstallReceipt?.targetPhase || '')) {
       const saved = (await prisma.instanceTask.findUniqueOrThrow({ where: { id: taskId } })).replacementState as Prisma.JsonObject
-      const resumable = (saved.rebuildOperation || saved.rebuildCompleted) && Number(saved.rebuildResumeAttempts || 0) < 6 && Date.now() - attempt.startedAt.getTime() < HEAVY_TASK_TIMEOUT
+      const prepared = saved.targetPhase === 'rebuild_prepared'
+      const resumable = (prepared || saved.rebuildOperation || saved.rebuildCompleted) && Number(saved.rebuildResumeAttempts || 0) < 6 && Date.now() - attempt.startedAt.getTime() < HEAVY_TASK_TIMEOUT
       await prisma.instanceTask.updateMany({ where: { id: taskId, status: 'PROCESSING', startedAt: attempt.startedAt, retryCount: attempt.retryCount },
         data: { progress: resumable ? 'rebuild_reconciling' : 'manual_intervention',
-          replacementState: { ...saved, rebuildNextAt: new Date(Date.now() + 60000).toISOString() },
-          error: resumable ? '重装等待原操作回执；60秒后核验并续接启动，不重复重装或重置密码' :
+          replacementState: { ...saved, rebuildNextAt: new Date(Date.now() + 60000).toISOString(),
+            rebuildLastError: redactAuditText(err instanceof Error ? err.message : 'REBUILD_CONTINUATION_FAILED').slice(0,500) },
+          error: resumable ? prepared ? '重装请求尚未发出；60秒后核验原任务并自动重试' : '重装等待原操作回执；60秒后核验并续接启动，不重复重装或重置密码' :
             '重装结果未确认或自动续接预算已用尽；保留原身份、占用及加密待用密码，需核对原操作回执，禁止直接重复重装' } })
       return
     }
@@ -2257,9 +2260,9 @@ export async function reconcileInterruptedRebuilds() {
     progress: { not: 'manual_intervention' }, replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' } },
     data: { progress: 'manual_intervention', error: '原重装自动续接期限已届满；保留原操作回执和资源，需核对原操作结果' } })
   const tasks = await prisma.instanceTask.findMany({ where: { taskType: 'rebuild', status: 'PROCESSING',
-    startedAt: { gt: expired }, replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' },
+    startedAt: { gt: expired }, OR: [{replacementState:{path:['targetPhase'],equals:'rebuild_uncertain'}},{replacementState:{path:['targetPhase'],equals:'rebuild_prepared'}}],
     AND: [
-      { OR: [{ replacementState: { path: ['rebuildCompleted'], equals: true } }, { replacementState: { path: ['rebuildOperation'], string_starts_with: '/1.0/operations/' } }] },
+      { OR: [{replacementState:{path:['targetPhase'],equals:'rebuild_prepared'}},{ replacementState: { path: ['rebuildCompleted'], equals: true } }, { replacementState: { path: ['rebuildOperation'], string_starts_with: '/1.0/operations/' } }] },
       { OR: [{ replacementState: { path: ['rebuildResumeAttempts'], equals: Prisma.AnyNull } }, { replacementState: { path: ['rebuildResumeAttempts'], lt: 6 } }] },
       { OR: [{ replacementState: { path: ['rebuildNextAt'], equals: Prisma.AnyNull } }, { replacementState: { path: ['rebuildNextAt'], lte: new Date().toISOString() } }] }
     ] }, orderBy: { id: 'asc' }, take: 10 })
@@ -2272,7 +2275,7 @@ export async function reconcileInterruptedRebuilds() {
         data: { progress: 'manual_intervention', error: '原重装自动续接期限已届满；保留原操作回执和资源，需核对原操作结果' } })
       continue
     }
-    if ((!state.rebuildOperation && state.rebuildCompleted !== true) || Number(state.rebuildResumeAttempts || 0) >= 6 ||
+    if ((state.targetPhase !== 'rebuild_prepared' && !state.rebuildOperation && state.rebuildCompleted !== true) || Number(state.rebuildResumeAttempts || 0) >= 6 ||
       typeof state.rebuildNextAt === 'string' && Date.parse(state.rebuildNextAt) > Date.now()) continue
     const claim = await prisma.$transaction(async tx => {
       if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)) return false

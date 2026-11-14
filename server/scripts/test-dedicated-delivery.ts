@@ -263,3 +263,23 @@ for (const keyType of ['ecdsa', 'rsa'] as const) {
   finally { await new Promise<void>((resolve, reject) => compatibleServer.close(error => error ? reject(error) : resolve())) }
 }
 console.log('Legacy image SSH negotiation passed: ECDSA and RSA require their Incus-registered key')
+
+// A failed handshake can report both socket and later protocol errors. The
+// second error must be handled after the promise has already been rejected.
+const originalConnect=ssh2.Client.prototype.connect
+let lateErrorObserved!:Promise<void>
+ssh2.Client.prototype.connect=function(){
+  lateErrorObserved=new Promise(resolve=>{
+    queueMicrotask(()=>{
+      this.emit('error',Object.assign(new Error('initial handshake error'),{level:'protocol'}))
+      setImmediate(()=>{this.emit('error',new Error('Connection lost before handshake'));resolve()})
+    })
+  })
+  return this
+}
+try{
+  await assert.rejects(checkSshLogin('127.0.0.1',testPassword,fingerprint,testPort),
+    error=>error instanceof DedicatedSshVerificationError&&error.reason==='unreachable')
+  await lateErrorObserved
+}finally{ssh2.Client.prototype.connect=originalConnect}
+console.log('SSH handshake failures retain their error handler through later connection teardown')

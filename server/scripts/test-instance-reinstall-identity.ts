@@ -24,6 +24,8 @@ const { encryptSensitiveData } = await import('../src/lib/security.js')
 const { reconcilePoolInstanceResources, reconcilePoolInstanceDns } = await import('../src/services/pool-resource-reconciliation.js')
 const { incusCompatibilityPermit }=await import('../src/services/incus-compatibility.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
+const { IncusClient } = await import('../src/lib/incus/incus-client.js')
+const { HostMaintenanceError } = await import('../src/lib/host-maintenance-gate.js')
 const tag = 'reinstall-' + randomUUID().slice(0, 8), root = await mkdtemp(join(tmpdir(), tag))
 const keyPath = join(root, 'key.pem'), certPath = join(root, 'cert.pem')
 execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=fixture',
@@ -279,7 +281,27 @@ try {
       assert.equal(calls.length, beforeCalls, 'busy admission cannot write or rebuild the remote guest')
       task = await prisma.instanceTask.update({ where: { id: task.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
     }
-    await executeTask(task.id, task)
+    if(taskType==='rebuild'&&scenario==='success'){
+      // The local fence can refuse after password preparation but before HTTP.
+      // No remote rebuild exists, so the same authorized task must retry.
+      const originalDispatch=IncusClient.prototype.beginMaintenanceAccess
+      let refused=false
+      IncusClient.prototype.beginMaintenanceAccess=async function(method:string){
+        const current=await prisma.instanceTask.findUniqueOrThrow({where:{id:task.id}})
+        if(!refused&&method==='POST'&&(current.replacementState as any)?.targetPhase==='rebuild_prepared'){
+          refused=true;throw new HostMaintenanceError()
+        }
+        return originalDispatch.call(this,method)
+      }
+      try{await executeTask(task.id,task)}finally{IncusClient.prototype.beginMaintenanceAccess=originalDispatch}
+      assert.equal(refused,true)
+      const waiting=await prisma.instanceTask.findUniqueOrThrow({where:{id:task.id}})
+      assert.equal(waiting.progress,'rebuild_reconciling')
+      assert.equal((waiting.replacementState as any).targetPhase,'rebuild_prepared')
+      assert.equal(calls.filter(c=>c===`POST /1.0/instances/${originalName}/rebuild`).length,0)
+      await prisma.instanceTask.update({where:{id:task.id},data:{replacementState:{...(waiting.replacementState as any),rebuildNextAt:'2000-01-01T00:00:00.000Z'}}})
+      await reconcileInterruptedRebuilds()
+    }else await executeTask(task.id, task)
     if (scenario === 'lost-waiter' || scenario === 'failed-receipt') {
       const waiting = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
       assert.equal((waiting.replacementState as any).rebuildOperation, rebuildOperation)

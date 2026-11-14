@@ -62,7 +62,7 @@ assert.ok(
 
 console.log('instance task query guard tests passed')
 const cleanup = sectionBetween('export async function cleanupOldTasks()', '/**\n * 取消 PENDING')
-for (const phase of ['rebuild_failed', 'rebuild_configuring', 'rebuild_uncertain']) {
+for (const phase of ['rebuild_failed', 'rebuild_configuring', 'rebuild_prepared', 'rebuild_uncertain']) {
   assert.ok(cleanup.includes(`{ NOT: { replacementState: { path: ['targetPhase'], equals: '${phase}' } } }`),
     'history cleanup must retain unresolved rebuild boot restrictions')
 }

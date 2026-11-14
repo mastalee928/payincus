@@ -105,7 +105,8 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
       const remaining = 30 * 60000 - (Date.now() - task.startedAt!.getTime())
       args[3] = Math.min(args[3] ?? 120000, remaining)
       if (task.taskType === 'rebuild' && method === 'POST' && path === originalPath + '/rebuild') {
-        args[5] = { ...args[5], onOperation: async path => { await persist({ rebuildOperation: path }) } }
+        args[5] = { ...args[5], onDispatch: async () => { await persist({ targetPhase: 'rebuild_uncertain' }) },
+          onOperation: async path => { await persist({ rebuildOperation: path }) } }
       }
       try { return await object.request(...args) }
       catch (error) {
@@ -125,7 +126,7 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
     async preparingConfig() { await persist({ targetPhase: 'rebuild_configuring', requiresRebuild: true }) },
     async targetAddress(address: string) { await persist({ targetIpv4: address }) },
     async prepareRebuildPassword(encryptedPassword: string, config: Record<string, string>) {
-      await persist({ targetPhase: 'rebuild_uncertain', requiresRebuild: true, pendingRootPassword: encryptedPassword,
+      await persist({ targetPhase: 'rebuild_prepared', requiresRebuild: true, pendingRootPassword: encryptedPassword,
         rebuildConfigHash: rebuildConfigHash(config),
         targetHostIdentity: hostIdentity, targetIncusId: instance.incusId,
         rebuildSourceUuid: saved.uuid, rebuildSourceCreatedAt: saved.createdAt })

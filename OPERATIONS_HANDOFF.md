@@ -1,5 +1,7 @@
 # PayIncus 操作手册
 
+2026-11-14 04:24 UTC当前：最新全池DNS/缺卷重装修复cd1b1787/Agent1.0.14的CI29/29、两TinyCloud真实后台恢复、12compat、双首装和六原worker升级及独立双包核验全通过；已授权原worker候选热更新任务48刚submitted。代码/Agent暂存于/var/cache/incudal-ota/owner-candidate-cd1b1787，Agent目录/var/lib/incudal-agent-release/cd1b1787，仍需核最终成功后34台自动升级/new hash及全池DNS、#38恢复和最终48镜像操作，正式未发行。#27/#41授权停启已完成，不再次执行。
+
 2026-11-14 03:15 UTC最新：主控候选47/preview-70f75c6已热更新成功，CI29/29及34台1.0.13新daemon自动verified全部过；#27/#41已授权停启结果保持。#38任务666在配置PUT阶段缺volume DB/实例链接导致backup pool404，尚未执行rebuild。候选1.0.14补精确缺失分类及完整前置配置原生回归；不在目标手工补DB或删除目录。当前ARM 24镜像新轮运行，AMD待#38恢复，新候选/最终矩阵/正式发行仍待。此前“候选未激活”是历史状态。
 
 2026-11-14最新续接：#27/#41已按owner明确授权各正常stop/start一次，原UUID/凭据/系统文件/账期价格及SSH/公网IPv6保持，sysinfo768MiB通过；不再等待授权。ARM最终旧1.0.12兼容daemon矩阵24/24成功，AMD#38因Btrfs旧重装空目录残留Stopped待修。候选70f75c6e/Agent1.0.13补重装operation lane/forkfile及空目录与缺卷登记续接，12原生/双首装/六旧worker升级/实际双包通过，完整CI43546551675仍待3分片。候选已缓存未激活，主控仍preview-aa8a291/Agent1.0.12；下一步CI终态后热更新、#38恢复、最终双架构矩阵、正式发版。下方“#27/#41待授权”为历史。

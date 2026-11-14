@@ -14,7 +14,9 @@ import { syncHostPublicIp } from '../src/services/host-public-ip-sync.js'
 import { verifyPublicSshIdentity } from '../src/lib/host-public-ip.js'
 import { encryptSensitiveData, decryptSensitiveData } from '../src/lib/security.js'
 import { createInstanceTask } from '../src/db/instance-tasks.js'
-import { executeTask } from '../src/workers/instanceTaskWorker.js'
+import { executeTask, reconcileInterruptedRebuilds } from '../src/workers/instanceTaskWorker.js'
+import { IncusClient } from '../src/lib/incus/incus-client.js'
+import { HostMaintenanceError } from '../src/lib/host-maintenance-gate.js'
 import { transferHostIdentity } from '../src/lib/transfer-host-identity.js'
 import { assertRebuildBootReady } from '../src/lib/instance-rebuild-state.js'
 import { acceptGuestProtectionStatus } from '../src/lib/guest-network-protection.js'
@@ -286,7 +288,23 @@ try {
         assert.equal((failed.replacementState as any).targetPhase, 'rebuild_failed')
         await assert.rejects(assertRebuildBootReady(prisma, instance.id), /重新选择镜像重装/)
         assert.equal(JSON.parse(execFileSync('incus', ['query', `/1.0/instances/${name}/state`], { encoding: 'utf8' })).status, 'Stopped')
-        const retry = await requestNativeOperation('rebuild', availableAlias)
+        const originalDispatch=IncusClient.prototype.beginMaintenanceAccess
+        let localRefusal=false
+        IncusClient.prototype.beginMaintenanceAccess=async function(method:string){
+          const pending=await prisma.instanceTask.findFirst({where:{instanceId:instance.id,status:'PROCESSING'},orderBy:{id:'desc'}})
+          if(!localRefusal&&method==='POST'&&(pending?.replacementState as any)?.targetPhase==='rebuild_prepared'){
+            localRefusal=true;throw new HostMaintenanceError()
+          }
+          return originalDispatch.call(this,method)
+        }
+        let waiting
+        try{waiting=await requestNativeOperation('rebuild',availableAlias)}finally{IncusClient.prototype.beginMaintenanceAccess=originalDispatch}
+        assert.equal(localRefusal,true)
+        assert.equal((waiting.replacementState as any).targetPhase,'rebuild_prepared')
+        assert.equal(waiting.progress,'rebuild_reconciling')
+        await prisma.instanceTask.update({where:{id:waiting.id},data:{replacementState:{...(waiting.replacementState as any),rebuildNextAt:'2000-01-01T00:00:00.000Z'}}})
+        await reconcileInterruptedRebuilds()
+        const retry=await prisma.instanceTask.findUniqueOrThrow({where:{id:waiting.id}})
         assert.equal(retry.status, 'COMPLETED', retry.error || '')
         const recovered = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
         assert.equal(recovered.status, 'running'); assert.equal(recovered.expiresAt?.getTime(), instance.expiresAt?.getTime())
