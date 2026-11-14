@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 后续根因复查：incusCompatibilityPermit对已verified的同hash/同request普通心跳仍先取独占maintenance lane，再重复读客机；即使最终仍verified，也会在短窗口让客户POST抛HostMaintenanceError。该路径可解释#38发送前被拒，与无远端重建/旧rootfs证据一致。补精确原hostIdentity+request+hash+verified回执直接返回，真正pending/新代仍走原锁。两架构PG用正在进行的customer mutation验证同回执无冲突，前置重装拒绝恢复与types通过；未声称旧日志保存了当时的异常类型。47771ecf原生双Alpine3.24、12compat、Agent均success，预览/完整CI仍在收尾，尚未新热更新。
+
 - 2026-11-14终轮新增未完成问题：#38任务735切Edge时已改config但磁盘仍Alpine3.22，原UUID/配置hash保持，无rebuildOperation，旧worker吞掉原异常后直接manual_intervention；不能把新image元数据当rootfs已改。补rebuild_prepared与真正HTTP dispatch分界，前置失败同原任务自动重查重试，发出后仍只凭原回执续接，持久脱敏错误。另05:02前后唯一backend因ssh2第二次error（Connection lost before handshake）无人监听退出，systemd恢复PID3062901/NRestarts1；候选无OTA，客户容器未重启。checkSshLogin改持续on error，新增两次错误回归通过。矩阵因此终态AMD16/24、ARM12/24，其余停止；#44新购全验通过。ARM余额差额已明确仅独立新购11元，不是重装收费。新增两修复本地types/相关守卫与双架构PG前置拒绝恢复已过，完整PG/原生新来源仍待，正式未发行。
 
 - 2026-11-14 04:44 UTC：新购#44/qa1810-dns-final TinyCloud已完整验收passed（初始化/SSH/IPv6/sysinfo768MiB/DNS、stop确认Stopped→start→restart、原key/password/marker/账期价格），余额与该实例1笔newPurchase保持。最新cd1b1787矩阵AMD5/24、ARM4/24继续，无终态失败；仅授权#44购买独立扣11元，真实balanceLog84/订单/账单核对通过，重装无新增收费。#42已后台自动DNS恢复，同boot双客户端仍运行但openresolv接管且下一boot无global注册；矩阵TinyCloud首轮后仅per-interface客户端、DNS保持。34/34新Agent与新hash核验已完成。

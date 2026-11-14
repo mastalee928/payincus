@@ -189,6 +189,12 @@ try {
       assert.equal(await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'pending',compatHash:hash,compatRequest:randomUUID()}}}),null,'another reload request cannot resume this fence')
       await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'verified',compatHash:hash,compatRequest:permit.requestId}}})
       assert.equal(hostMaintenanceBlocked((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).securityHardening),false)
+      const {beginHostMutation}=await import('../src/lib/host-operation-lane.js')
+      const releaseCustomerMutation=beginHostMutation(host.id)
+      try{
+        assert.equal(await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'verified',compatHash:hash,compatRequest:permit.requestId}}}),null,
+          'a repeated verified heartbeat cannot take the maintenance lane from a customer operation')
+      }finally{releaseCustomerMutation()}
       const nextHash='b'.repeat(64)
       const nextPermit=await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'needed',compatHash:nextHash,compatRequest:permit.requestId}}})
       assert.equal(nextPermit?.requestId,permit.requestId,'verified original authority carries the next fixed binary generation')

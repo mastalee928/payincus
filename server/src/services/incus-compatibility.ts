@@ -25,6 +25,11 @@ export async function incusCompatibilityPermit(agent:HostAgentRecord) {
  if(!original.singleTenant||original.status!=='online'||original.installPending||original.poolFaulted)return null
  const saved=record(original.securityHardening),existing=record(saved.incusCompat) as Fence
  if(hostMaintenanceBlocked(original.securityHardening)&&existing.version!==1)return null
+ // A repeated acknowledgement has no maintenance work. Taking the exclusive
+ // lane on every heartbeat can refuse a customer mutation between its checks.
+ if(existing.version===1&&existing.phase==='verified'&&report.incusCompat==='verified'&&
+  report.compatRequest===existing.requestId&&report.compatHash===existing.binaryHash&&
+  existing.hostIdentity===transferHostIdentity(original))return null
  const rows=await prisma.instance.findMany({where:{hostId:agent.hostId,status:{not:'deleted'}},orderBy:{id:'asc'}})
  const connect=async()=>{const target=await getHostById(agent.hostId);if(!target)throw Error('COMPAT_HOST_MISSING');return getIncusClient(target,prisma,5000)}
  return withHostMaintenanceLane(agent.hostId,()=>prisma.$transaction(async tx=>{
