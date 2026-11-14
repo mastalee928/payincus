@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 最终兼容daemon替换后补跑全部镜像：/var/cache/incudal-ota/owner-compat-sysinfo-6c8b36ed-amd、-arm，正常用户API、AMD#35–39和ARM#40/#42两个测试实例，各24镜像重装/stop/start/restart，每步加真实sysinfo字节数并核原密码key/磁盘/IPv4IPv6/账期价格，2026-11-14 01:20UTC启动仍running。旧609矩阵48全过保留，但不能替代新daemon范围。正式发行等本轮终态及#27/#41旧启动处理owner选择，主控preview-aa8a291/Agent1.0.12、34池verified/25空可售不受此测试其它宿主影响。
+
+- 6c8b36ed最终验证：CI43534756776 29/29、Agent43534756798、Alpine43534756814、8原生43534756899和无tag预览43534750911双首装/六旧worker升级全部success。主控46成功preview-aa8a291，已验证1.0.12经正常manifest自然34/34升级，原34任务全部verified；实际分配器34ready、25空库存可售。9运行实例quota/proc/cgroup/只读视图准确；原8客户/测试PID/boot保持，#42正常用户停启496/497后sysinfo4GiB并保持身份账期。E2#37/sysinfo768MiB、ARM#40/4GiB即刻正确；#27/#41旧启动没有sysinfo规则，是否代停启owner选择待答，不宣称当前sysinfo准确。修复后单次实购#43/qa1810-final-alpine原价10+1扣11一次，网页订单/用户无改价/stop498/start499/restart500完成，SSH/IPv6/768MiB/30GiB/sysinfo全过；图库224文件18.66GB升级清单保持。最终[五轮](docs/incus-resource-final-five-reviews-2026-11-14.md)已记录，正式未发布。
+
 - 3ad647ab八原生43534428864六旧场景全部success，空池两架构在刚storage create后尚有操作回执导致预期零字节断言失败。仅测试改等真实ops metadata完全空再验证普通query零字节/--raw严格成功及自动空池重载，保留有界等待；产品strict envelope不变。新来源待，当前34旧prepared门禁仍待1.0.12实际完成，不发布。
 
 - aa8a291d候选热更新46于2026-11-14 00:20:38UTC成功preview-aa8a291，备份/opt/incudal.bak.20261114001857，原worker/DB支付/243迁移无待执行/双前端/身份检查通过。初次暂存Agent在/opt/incudal/agent-release-aa8a291d触发原seal额外3文件拒绝；核原文件0changed/0removed后移到/var/lib/incudal-agent-release/aa8a291d，原任务46执行成功，未放宽seal。以后候选组件暂存必须在代码目录外。34/34已自然Agent1.0.11，9运行实例PID/UUID/账期/价格/状态及图库224文件18.66GB原样保持；但自动兼容全部prepared、暂挡新售。根因实际Incus query在metadata={}时输出空文本，Agent解析ops失败（尚未替换）；六客机测试含诊断操作没有覆盖空ops。源码改query --raw、严格sync/200/非NULL metadata/所有终态操作校验，Agent递增1.0.12；新增空池×双架构共8原生场景。双vet/编译/版本和工具守卫过，待新来源实际空池/自动续接/目标sysinfo/解除门禁，禁止正式发布。

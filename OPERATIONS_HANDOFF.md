@@ -1,5 +1,7 @@
 # PayIncus 操作手册
 
+2026-11-14 09:17最新：候选46成功preview-aa8a291，Agent1.0.12同来源全部CI/8原生/双首装及6旧升级通过后经正常manifest自动34/34并全部verified，实际34allocator ready/25空库存可售。客户8原PID/boot/UUID保持，#42专用测试正常停启验证4GiB；#37/40/sysinfo768MiB/4GiB准确，新购#43原价11元单扣、网页停启重启/SSH/IPv6/资源通过。主控/镜像库/DB243原样核验。真实客户#27/#41旧启动sysinfo规则需正常重启生效，尚未代停启，owner选择待答；正式发行尚未执行，先查这项再继续。最终五轮见docs/incus-resource-final-five-reviews-2026-11-14.md。
+
 2026-11-14最新候选aa8a291d（Agent1.0.11）自动sysinfo六原生含准备中断/服务失败回滚续接均success；同来源无tag预览43529100818双首装/六旧worker升级和实际双包独立签名、243迁移及用户权限/无整库通过。完整CI43529108636仍6综合分片待终态，未热更新该批/正式发行。主控只读基线仍preview-6093777/Agent1.0.10，34宿主online/tools ready/无poolFaulted，9运行实例实际MiB和30GiB正确，无在途任务。AMD/ARM各24镜像全操作矩阵已完成，剩新候选主控OTA与全池自然修sysinfo/原客户PID身份保护验收。原生产限额/proc修复已生效不等于新sysinfo已现场成功。
 
 2026-11-14 04:44北京时间：最终候选热更新45成功，preview-6093777/source609377755459，243迁移无待执行，备份/opt/incudal.bak.20261113204213。同来源CI29/29、Agent/Alpine、双首装及六旧worker升级和实际双包独立核通过。34池宿主正常manifest自动Agent1.0.10均online/工具ready，无新隔离；历史#27后台精确配额修复已生效，持久镜像库88收据18.66GB两次升级保持、无重下。测试账号AMD22/ARM11镜像已完整通过，最终源码剩余2/13项正在继续，未正式发布；不要提前合tag或以该阶段作为全部镜像验收。
