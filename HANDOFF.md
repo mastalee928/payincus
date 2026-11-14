@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 2026-11-14 03:15 UTC现场续验：候选47成功运行preview-70f75c6（备份/opt/incudal.bak.20261114030410），同来源CI43546551675最终29/29success，34/34宿主Agent1.0.13及新Incus hash均verified/online/无poolFaulted。#38复验任务666在rebuild_configuring失败：旧失败已删volume DB及instance symlink，配置PUT的UpdateBackupFile先查pool而返回404；尚未执行新重建，原UUID/账期/价格保持。新增候选Agent1.0.14仅在Stopped非snapshot、精确pool404且Lstat实例路径确实不存在时将缺备份归类为fs.ErrNotExist，沿原Update处理；链接仍存在/运行/其它错误不忽略。原生夹具补缺volume记录及链接的真实配置PUT→rebuild→启动/同UUID/sysinfo/backup.yaml，原非空目录拒绝保持。本地补丁hash/双架构Go vet与编译、host-tools已过，新原生/候选包/现场恢复仍待。ARM当前1.0.13全镜像复验已开始；AMD矩阵未开始，#38仍Stopped。正式发行未执行。
+
+- 2026-11-14续接：当前产品70f75c6e9132f21d8e2323c715c1fdfa1aa013f1/Agent1.0.13；12原生43546551774全部success（正常、空池、准备中断、回滚重试、上一代回执升级、Btrfs三次重装+非空拒绝/空目录恢复×双架构），Agent43546551620success；无tag预览43546695332双首装及六旧worker升级全部success，实际双tar独立原pin/source/243迁移与模块/用户边界核通过。完整CI43546551675当前26/29，3分片待终态。前Btrfs fixture失败依次为ext4 regular-file source、BusyBox losetup和CLI镜像/实例参数顺序，均已按真实工具修正，不放宽产品断言。新候选包已暂存主控/var/cache/incudal-ota/owner-candidate-70f75c6e，尚未启动升级，当前仍preview-aa8a291/1.0.12。ARM SFTP探针矩阵24/24最终passed，余额999865.88和2笔新购账单保持；此前Python/超大参数失败为测试采样错误，证据保留。#38仍Stopped等待新Btrfs补丁原实例重装恢复；最终新daemon下AMD/ARM矩阵和正式发行仍未完成。
+
 - 最新Btrfs兼容来源9de500ff固定生命周期hash4434934a...859ffe5：补原根disk pool在失败卷登记被删后重试；types/双Go vet编译及PG下一代许可完整回归已过。原生43545187185两Btrfs job失败都在首次建池前BusyBox losetup缺--find，尚未重装，不是补丁失败；一次性fixture补正式Alpine安装已有util-linux/losetup，前ext4 source误用已改Incus自建loop。其它正常/准备/回滚/空池继续成功，最终Btrfs/native/目标38重装与所有镜像仍待，未正式发行。#27/#41授权停启均passed，旧error字段是已核网络同步后的历史诊断。
 
 - Btrfs残留恢复复审补DeleteVolume：已有空普通目录会被HasVolume视为卷，先btrfs delete同样拒绝。复制与删除两个阶段均持mount锁/无引用，仅rmdir inode非256的空普通目录；真实子卷/非空/链接拒绝，原子实例重装lane+forkfile保持。生命周期hash固定fc08e46b...d5cba3b，替代此前adc候选；原924原生仍只代表未完善版本，最终新native待。ARM SFTP静态probe完整镜像已2项过、其它继续，无账務变化。

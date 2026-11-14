@@ -45,7 +45,7 @@ jobs:
           p=pathlib.Path('output');m=json.loads((p/'incusd-manifest.json').read_text());b=(p/'incusd').read_bytes()
           assert m['sourceSha256']=='5e415fa1684f0945d45ca780af6662f143b857681e18d29038725cde70c26ee6'
           assert m['patchedSourceSha256']=='bad35c2986663bddeddb94e088969ba1671446dc08875da6a6727e996334f12a'
-          assert m['lifecycleSourceSha256']=='4434934a807d80485f436ae1a7c9313eee92006cbadddb6641d30b005859ffe5'
+          assert m['lifecycleSourceSha256']=='a60cea54e5d1e5397292556627fdcf7a808494e6abcbb180dd3b3710f03eb222'
           assert hashlib.sha256(b).hexdigest()==m['sha256'] and len(b)==m['size']
           PY
       - name: Original daemon reload retains guest and corrects real sysinfo

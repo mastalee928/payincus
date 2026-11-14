@@ -127,6 +127,33 @@ b=json.load(open('/tmp/identity-before.json'));a=json.load(open('/tmp/identity-r
 assert a['config']['volatile.uuid']==b['config']['volatile.uuid']
 assert a['config']['limits.memory']=='128MiB'
 PY
+  # A failed CreateInstanceFromImage also removes the volume DB row and
+  # instance symlink. Exercise the panel's config PUT before rebuild, rather
+  # than testing only the Incus rebuild command against an intact volume row.
+  incus stop native-sysinfo --force
+  btrfs subvolume delete "$target"
+  incus admin sql global "DELETE FROM storage_volumes WHERE name='native-sysinfo' AND type=0 AND project_id=(SELECT id FROM projects WHERE name='default') AND storage_pool_id=(SELECT id FROM storage_pools WHERE name='default')"
+  if incus config set native-sysinfo user.user-data '#cloud-config'; then
+    echo 'Existing instance link with missing volume record must remain an error'; exit 1
+  fi
+  rm /var/lib/incus/containers/native-sysinfo
+  mkdir -m 0100 "$target"
+  incus config set native-sysinfo user.user-data '#cloud-config'
+  test "$(incus config get native-sysinfo user.user-data)" = '#cloud-config'
+  incus rebuild images:alpine/3.24/tinycloud native-sysinfo --force
+  incus start native-sysinfo
+  incus file push --mode=0700 /tmp/sysinfo native-sysinfo/root/sysinfo
+  timeout -s KILL 5 incus exec native-sysinfo -- timeout -s KILL 3 /root/sysinfo | grep -q '^SYSINFO_BYTES=134217728$'
+  incus query /1.0/instances/native-sysinfo > /tmp/identity-retry-final.json
+  python3 - <<'PY'
+import json
+b=json.load(open('/tmp/identity-before.json'));a=json.load(open('/tmp/identity-retry-final.json'))
+assert a['config']['volatile.uuid']==b['config']['volatile.uuid']
+assert a['config']['limits.memory']=='128MiB'
+assert a['config']['user.user-data']=='#cloud-config'
+PY
+  test -f "$target/backup.yaml"
+  echo 'PASS missing volume record: pre-rebuild config, same UUID, restored backup and sysinfo'
   echo 'PASS native Btrfs repeated rebuild and original empty-directory recovery'
 fi
 incus delete --force native-sysinfo

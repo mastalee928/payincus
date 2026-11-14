@@ -83,6 +83,25 @@ lxc_text = lxc_text.replace(lxc_marker, '''func (d *lxc) Rebuild(img *api.Image,
     if err != nil { return err }
     return d.rebuildCommon(d, img, op)
 }''')
+backup_marker = '''	// Write the current instance state to backup file.
+	pool, err := d.getStoragePool()
+	if err != nil {
+		return err
+	}'''
+assert lxc_text.count(backup_marker) == 1
+lxc_text = lxc_text.replace(backup_marker, '''	// Write the current instance state to backup file.
+	pool, err := d.getStoragePool()
+	if err != nil {
+        // Failed rebuilds can remove both the volume row and instance link.
+        // Update already permits an absent backup file for a stopped rootfs;
+        // classify only that exact absence so pre-rebuild config can persist.
+        // An existing link, running guest, or other pool error is not ignored.
+        if !d.IsRunning() && !d.IsSnapshot() && api.StatusErrorCheck(err, http.StatusNotFound) {
+            _, pathErr := os.Lstat(d.Path())
+            if errors.Is(pathErr, fs.ErrNotExist) { return fs.ErrNotExist }
+        }
+		return err
+	}''')
 lxc_target.write_text(lxc_text)
 btrfs_target = source / 'internal/server/storage/drivers/driver_btrfs_volumes.go'
 btrfs_text = btrfs_target.read_text()

@@ -1,5 +1,9 @@
 # PayIncus 操作手册
 
+2026-11-14 03:15 UTC最新：主控候选47/preview-70f75c6已热更新成功，CI29/29及34台1.0.13新daemon自动verified全部过；#27/#41已授权停启结果保持。#38任务666在配置PUT阶段缺volume DB/实例链接导致backup pool404，尚未执行rebuild。候选1.0.14补精确缺失分类及完整前置配置原生回归；不在目标手工补DB或删除目录。当前ARM 24镜像新轮运行，AMD待#38恢复，新候选/最终矩阵/正式发行仍待。此前“候选未激活”是历史状态。
+
+2026-11-14最新续接：#27/#41已按owner明确授权各正常stop/start一次，原UUID/凭据/系统文件/账期价格及SSH/公网IPv6保持，sysinfo768MiB通过；不再等待授权。ARM最终旧1.0.12兼容daemon矩阵24/24成功，AMD#38因Btrfs旧重装空目录残留Stopped待修。候选70f75c6e/Agent1.0.13补重装operation lane/forkfile及空目录与缺卷登记续接，12原生/双首装/六旧worker升级/实际双包通过，完整CI43546551675仍待3分片。候选已缓存未激活，主控仍preview-aa8a291/Agent1.0.12；下一步CI终态后热更新、#38恢复、最终双架构矩阵、正式发版。下方“#27/#41待授权”为历史。
+
 2026-11-14 09:17最新：候选46成功preview-aa8a291，Agent1.0.12同来源全部CI/8原生/双首装及6旧升级通过后经正常manifest自动34/34并全部verified，实际34allocator ready/25空库存可售。客户8原PID/boot/UUID保持，#42专用测试正常停启验证4GiB；#37/40/sysinfo768MiB/4GiB准确，新购#43原价11元单扣、网页停启重启/SSH/IPv6/资源通过。主控/镜像库/DB243原样核验。真实客户#27/#41旧启动sysinfo规则需正常重启生效，尚未代停启，owner选择待答；正式发行尚未执行，先查这项再继续。最终五轮见docs/incus-resource-final-five-reviews-2026-11-14.md。
 
 2026-11-14最新候选aa8a291d（Agent1.0.11）自动sysinfo六原生含准备中断/服务失败回滚续接均success；同来源无tag预览43529100818双首装/六旧worker升级和实际双包独立签名、243迁移及用户权限/无整库通过。完整CI43529108636仍6综合分片待终态，未热更新该批/正式发行。主控只读基线仍preview-6093777/Agent1.0.10，34宿主online/tools ready/无poolFaulted，9运行实例实际MiB和30GiB正确，无在途任务。AMD/ARM各24镜像全操作矩阵已完成，剩新候选主控OTA与全池自然修sysinfo/原客户PID身份保护验收。原生产限额/proc修复已生效不等于新sysinfo已现场成功。

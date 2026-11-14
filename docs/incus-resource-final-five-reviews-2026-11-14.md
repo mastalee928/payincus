@@ -1,5 +1,9 @@
 # 最终资源与自动修复五轮审视
 
+2026-11-14追加五轮：#38任务666表明70f75c6对失败rootfs重建的修复没有覆盖前置配置PUT。逐项复查：(1) UpdateBackupFile以类型化404及Lstat确实不存在识别缺备份，沿原fs.ErrNotExist处理，不吞其它存储错误；(2) Running/snapshot/现存链接仍拒绝，补真实负例；(3) 保留Update及Rebuild原操作锁、forkfile退出、backup锁，不取消在途操作；(4) 沿原配置root pool恢复原实例，非空/真实子卷保护仍在，UUID与账务不重建；(5) 原生新增缺卷DB与链接→config PUT→rebuild→start→backup.yaml/sysinfo/UUID全链，固定新生命周期hash a60cea54e5d1e5397292556627fdcf7a808494e6abcbb180dd3b3710f03eb222，Agent候选1.0.14。源码及本地双Go vet/编译、host-tools通过，新增云端原生及目标#38实证待完成，不能用前12原生绿代替。
+
+70f75c6本身完整CI29/29、12原生及双首装/六旧升级均通过，候选47及34/34新hash自动verified完成；实际前置配置失败揭示夹具缺少volume DB已删除的状态，已保留失败证据。真实客户#27/#41授权停启完成，旧“待授权”内容仅为历史。正式未发行。
+
 产品来源：面板控制面 `aa8a291d184135b27945e5636c0f08bab8258bfe`，Agent 最终 `6c8b36ed0f91c51fb6c0091bd53c054963bf2912` / v1.0.12。后者没有新增前后端业务源码变化，增加空操作完整响应检查、真实空池原生与对应版本。正式发行尚未执行。
 
 ## 第一轮：真实规格和新旧实例
